@@ -6,7 +6,7 @@
 
 | Skill | 호출어 | 용도 |
 | --- | --- | --- |
-| `review-fix-test` | `변경리뷰`, `커밋리뷰`, `동시리뷰`, `반복변경리뷰`, `반복커밋리뷰` | 현재 변경분, 마지막 커밋, 또는 둘 다를 리뷰/수정/검증한다. |
+| `review-fix-test` | `변경리뷰`, `커밋리뷰`, `동시리뷰`, `반복리뷰`, `반복변경리뷰`, `반복커밋리뷰` | 현재 변경분, 마지막 커밋, 또는 둘 다를 리뷰/수정/검증한다. |
 
 ## Repository Layout
 
@@ -14,15 +14,14 @@
 codex-skills/
 ├── AGENTS.md
 ├── README.md
-├── rules/
+├── instructions/
 │   ├── git.md
-│   └── review-shortcuts.md
+│   └── skill-shortcuts.md
 └── skills/
-    └── review/
-        └── review-fix-test/
-            ├── SKILL.md
-            └── agents/
-                └── openai.yaml
+    └── review-fix-test/
+        ├── SKILL.md
+        └── agents/
+            └── openai.yaml
 ```
 
 ## Installation
@@ -30,23 +29,23 @@ codex-skills/
 ### Manual Install
 
 ```bash
-mkdir -p ~/.codex/skills ~/.codex/rules
-cp -R skills/review/review-fix-test ~/.codex/skills/
-cp rules/git.md ~/.codex/rules/
-cp rules/review-shortcuts.md ~/.codex/rules/
+mkdir -p ~/.codex/skills ~/.codex/instructions
+cp -R skills/review-fix-test ~/.codex/skills/
+cp instructions/git.md ~/.codex/instructions/
+cp instructions/skill-shortcuts.md ~/.codex/instructions/
 ```
 
 설치 후 Codex를 재시작하면 skill 목록에 반영된다.
 
-### Global Rules
+### Global Instructions
 
-짧은 한국어 호출어와 Git 규칙을 전역에서 쓰려면 `~/.codex/AGENTS.md` 또는 프로젝트 `AGENTS.md`에서 rule 파일을 참조한다.
+짧은 한국어 호출어와 Git 규칙을 전역에서 쓰려면 `~/.codex/AGENTS.md` 또는 프로젝트 `AGENTS.md`에서 instruction 파일을 참조한다.
 
 ```md
-## Additional Rules
+## Additional Instructions
 
-- Git/커밋 메시지 규칙은 `~/.codex/rules/git.md`를 따른다.
-- 리뷰 단축어 규칙은 `~/.codex/rules/review-shortcuts.md`를 따른다.
+- Git/커밋 메시지 규칙은 `~/.codex/instructions/git.md`를 따른다.
+- 스킬 호출어와 실행 보조 규칙은 `~/.codex/instructions/skill-shortcuts.md`를 따른다.
 ```
 
 ## Usage
@@ -77,6 +76,7 @@ $review-fix-test target=both
 반복 리뷰는 `max`로 지정한다. 반복 호출어의 기본 최대 반복은 10회다.
 
 ```text
+반복리뷰
 반복변경리뷰
 반복커밋리뷰
 반복변경리뷰 max=5
@@ -107,11 +107,14 @@ $review-fix-test commit=true
 
 ## Skill Format
 
-각 skill은 `SKILL.md`를 포함한 독립 폴더다. UI 메타데이터가 필요한 경우 `agents/openai.yaml`을 함께 둔다. skill 내부에는 별도 README나 changelog를 두지 않고, 공유/설치 안내는 repo root 문서에서 관리한다.
+각 skill은 `skills/<skill-name>/SKILL.md` 형태의 독립 폴더다. UI 메타데이터가 필요한 경우 `agents/openai.yaml`을 함께 둔다. skill 내부에는 별도 README나 changelog를 두지 않고, 공유/설치 안내는 repo root 문서에서 관리한다.
+
+`instructions/`는 `AGENTS.md`가 참조하는 보조 지침이다. Codex의 명령 승인 정책용 `rules/`와 의미가 겹치지 않도록 일반 Markdown 지침은 이 폴더에 둔다.
 
 ## Development
 
 - skill을 수정할 때는 `SKILL.md` frontmatter의 `name`과 `description`을 먼저 확인한다.
-- `review-fix-test`는 review workflow의 단일 엔진이다. 새 리뷰 호출어를 추가할 때는 skill을 늘리기보다 option parsing과 `rules/review-shortcuts.md` 매핑을 확장한다.
-- 단축어나 커밋 규칙을 수정할 때는 `rules/` 아래 파일을 먼저 수정한다.
+- 새 skill은 category 하위 폴더를 만들지 말고 `skills/<skill-name>/` 아래에 둔다.
+- `review-fix-test`는 review workflow의 단일 엔진이다. 새 리뷰 호출어를 추가할 때는 skill을 늘리기보다 option parsing과 `instructions/skill-shortcuts.md` 매핑을 확장한다.
+- 단축어나 커밋 규칙을 수정할 때는 `instructions/` 아래 파일을 먼저 수정한다.
 - 공유 전 YAML frontmatter와 `agents/openai.yaml` 구문을 검증한다.

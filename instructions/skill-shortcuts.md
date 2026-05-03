@@ -1,4 +1,4 @@
-# Review Shortcuts
+# Skill Shortcuts
 
 ## Code Review Defaults
 

@@ -51,7 +51,7 @@
 
 강한 성공 기준은 에이전트가 독립적으로 반복 검증하게 만든다. 약한 기준은 지속적인 확인 요청을 만든다.
 
-## Additional Rules
+## Additional Instructions
 
-- Git/커밋 메시지 규칙은 `rules/git.md`를 따른다.
-- 리뷰 단축어 규칙은 `rules/review-shortcuts.md`를 따른다.
+- Git/커밋 메시지 규칙은 `instructions/git.md`를 따른다.
+- 스킬 호출어와 실행 보조 규칙은 `instructions/skill-shortcuts.md`를 따른다.
