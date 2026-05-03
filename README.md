@@ -1,12 +1,13 @@
 # Codex Skills
 
-개인 또는 팀에서 재사용할 수 있는 Codex skill 모음이다. 현재는 git 변경분과 마지막 커밋을 새 에이전트로 리뷰하고, 필요한 개선과 검증까지 이어가는 리뷰 workflow skill을 포함한다.
+개인 또는 팀에서 재사용할 수 있는 Codex skill 모음이다. 현재는 기능 플로우 리뷰, API 설계 리뷰, git 변경분 리뷰 workflow skill을 포함한다.
 
 ## Skills
 
 | Skill | 호출어 | 용도 |
 | --- | --- | --- |
 | `feature-flow-review` | `기능플로우리뷰`, `플로우리뷰`, `기능 흐름 정리`, `플로우 문서 작성` | API 상세 설계 전에 신규 기능의 플로우, 분기, 상태 전이, 토큰/외부 연동을 정리한다. |
+| `api-design-review` | `API리뷰`, `기획서리뷰`(확정 플로우), `엔드포인트리뷰`, `API 설계 리뷰`, `API 초안 작성` | 프로젝트별 컨벤션, 기존 코드 패턴, 또는 Spring/REST 기본 관례를 기준으로 API 엔드포인트 초안과 설계 엣지케이스를 정리한다. |
 | `review-fix-test` | `변경리뷰`, `커밋리뷰`, `동시리뷰`, `반복리뷰`, `반복변경리뷰`, `반복커밋리뷰` | 현재 변경분, 마지막 커밋, 또는 둘 다를 리뷰/수정/검증한다. |
 
 ## Repository Layout
@@ -19,6 +20,10 @@ codex-skills/
 │   ├── git.md
 │   └── skill-shortcuts.md
 └── skills/
+    ├── api-design-review/
+    │   ├── SKILL.md
+    │   └── agents/
+    │       └── openai.yaml
     ├── feature-flow-review/
     │   ├── SKILL.md
     │   └── agents/
@@ -63,6 +68,18 @@ cp instructions/skill-shortcuts.md ~/.codex/instructions/
 기능 흐름 정리
 기능플로우리뷰 문서까지
 플로우 문서 작성 경로: docs/features/customer_account_link_flow.md
+```
+
+확정된 플로우나 API 관점으로 정리할 기획서를 바탕으로 전체 엔드포인트 초안, Request/Response 필드, 처리 내용, 설계 엣지케이스를 정리한다. 프로젝트별 참고문서와 기존 코드 패턴을 우선 적용하고, 둘 다 없으면 Spring/REST 기본 관례를 가정으로 표시한다.
+
+`기획서리뷰`만 요청했고 다단계 흐름, 상태 전이, 토큰, 외부 연동이 미확정이면 `기능플로우리뷰`를 먼저 사용한다.
+
+```text
+API리뷰
+기획서리뷰
+엔드포인트리뷰
+API리뷰 입력 문서: docs/features/customer_account_link_flow.md
+API리뷰 참고문서: docs/api-convention.md docs/openapi.json
 ```
 
 현재 브랜치에서 아직 커밋하지 않은 staged, unstaged, 관련 untracked 변경분을 1회 리뷰한다. 필요한 수정과 검증을 진행하며, 기본적으로 커밋하지 않는다.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "API Design Review / API 리뷰"
+  short_description: "구현 전에 엔드포인트, 요청/응답, 설계 엣지케이스를 정리"
+  default_prompt: "Use $api-design-review to 기능 문서를 바탕으로 API 엔드포인트 초안과 확인 필요한 엣지케이스를 정리해줘."
+
+policy:
+  allow_implicit_invocation: true
