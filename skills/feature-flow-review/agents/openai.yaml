@@ -1,0 +1,7 @@
+interface:
+  display_name: "Feature Flow Review / 기능 플로우 리뷰"
+  short_description: "API 설계 전에 기능 플로우, 분기, 상태 전이, 토큰 정책을 정리"
+  default_prompt: "Use $feature-flow-review to 신규 기능의 전체 플로우와 상태 전이를 API 상세 설계 전에 정리해줘."
+
+policy:
+  allow_implicit_invocation: true

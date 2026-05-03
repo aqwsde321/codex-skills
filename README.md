@@ -6,6 +6,7 @@
 
 | Skill | 호출어 | 용도 |
 | --- | --- | --- |
+| `feature-flow-review` | `기능플로우리뷰`, `플로우리뷰`, `기능 흐름 정리`, `플로우 문서 작성` | API 상세 설계 전에 신규 기능의 플로우, 분기, 상태 전이, 토큰/외부 연동을 정리한다. |
 | `review-fix-test` | `변경리뷰`, `커밋리뷰`, `동시리뷰`, `반복리뷰`, `반복변경리뷰`, `반복커밋리뷰` | 현재 변경분, 마지막 커밋, 또는 둘 다를 리뷰/수정/검증한다. |
 
 ## Repository Layout
@@ -18,6 +19,10 @@ codex-skills/
 │   ├── git.md
 │   └── skill-shortcuts.md
 └── skills/
+    ├── feature-flow-review/
+    │   ├── SKILL.md
+    │   └── agents/
+    │       └── openai.yaml
     └── review-fix-test/
         ├── SKILL.md
         └── agents/
@@ -30,7 +35,7 @@ codex-skills/
 
 ```bash
 mkdir -p ~/.codex/skills ~/.codex/instructions
-cp -R skills/review-fix-test ~/.codex/skills/
+cp -R skills/* ~/.codex/skills/
 cp instructions/git.md ~/.codex/instructions/
 cp instructions/skill-shortcuts.md ~/.codex/instructions/
 ```
@@ -49,6 +54,16 @@ cp instructions/skill-shortcuts.md ~/.codex/instructions/
 ```
 
 ## Usage
+
+신규 기능이나 큰 기능 변경을 API 상세 설계 전에 플로우, 분기, 상태 전이, 토큰/임시 저장 중심으로 정리한다. 항상 API 상세 설계로 넘어가기 전에 멈춘다.
+
+```text
+기능플로우리뷰
+플로우리뷰
+기능 흐름 정리
+기능플로우리뷰 문서까지
+플로우 문서 작성 경로: docs/features/customer_account_link_flow.md
+```
 
 현재 브랜치에서 아직 커밋하지 않은 staged, unstaged, 관련 untracked 변경분을 1회 리뷰한다. 필요한 수정과 검증을 진행하며, 기본적으로 커밋하지 않는다.
 

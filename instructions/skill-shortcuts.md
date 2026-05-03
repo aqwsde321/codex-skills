@@ -10,6 +10,21 @@
 
 ## Shortcut Mapping
 
+### Feature Flow Review
+
+- 사용자가 `기능플로우리뷰`, `플로우리뷰`, `기능 흐름 정리`, `플로우 문서 작성`처럼 요청하면 `$feature-flow-review` skill을 사용한다.
+- 기능이 회원가입, 계정연동, 인증, 승인, 주문, 결제, 정산처럼 여러 단계와 상태 전이가 있으면 API 상세 설계나 구현보다 `$feature-flow-review`를 먼저 사용한다.
+- 사용자가 `문서까지`, `문서 작성`, `flow 문서`, `플로우 문서`라고 하면 플로우 리뷰 결과를 Markdown 문서로 작성한다.
+- 문서 저장 경로는 사용자가 지정한 파일 경로를 최우선으로 사용한다.
+- `경로:`, `파일:`, `저장 위치:` 뒤에 오는 값은 명시적인 문서 저장 경로로 해석한다.
+- 사용자가 디렉터리만 지정하면 `<feature>_flow.md` 파일명으로 그 안에 작성한다.
+- 저장 경로가 없고 프로젝트의 문서 관례가 명확하면 경로를 제안하고 확인을 받은 뒤 작성한다.
+- 저장 경로가 없고 프로젝트의 문서 관례가 명확하지 않으면 저장 위치를 먼저 질문한다.
+- `feature-flow-review`는 API 상세 리뷰로 이어가지 않고 항상 플로우 확정 단계에서 멈춘다.
+- API 상세 리뷰는 별도 skill에서 다룬다.
+
+### Review Fix Test
+
 - 사용자가 `변경리뷰`, `작업트리 리뷰`, `워킹트리 리뷰`, `현재 변경 리뷰`처럼 요청하면 `$review-fix-test` skill을 사용한다. 기본값은 `target=changes max=1 commit=false verify_max=3`이다.
 - 사용자가 `커밋리뷰`, `리뷰커밋`, `막커밋 리뷰`, `마지막 커밋 리뷰하고 수정`처럼 요청하면 `$review-fix-test target=commit`으로 해석한다. `target=commit`의 기본값은 `commit=true`이다.
 - 사용자가 `동시리뷰`, `커밋이랑 변경 같이 리뷰`, `마지막 커밋과 현재 변경 리뷰`처럼 요청하면 `$review-fix-test target=both`로 해석한다. `target=both`의 기본값은 `commit=false`이다.
