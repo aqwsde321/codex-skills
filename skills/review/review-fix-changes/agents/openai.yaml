@@ -1,7 +1,0 @@
-interface:
-  display_name: "Review Fix Changes"
-  short_description: "새 에이전트로 현재 변경분 리뷰"
-  default_prompt: "Use $review-fix-changes to 새 에이전트로 현재 git 변경분을 리뷰하고, 문제 있으면 수정하고 관련 테스트까지 실행해줘."
-
-policy:
-  allow_implicit_invocation: true

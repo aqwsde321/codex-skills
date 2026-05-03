@@ -4,13 +4,7 @@
 
 - 답변은 한국어로 한다.
 
-## Git
-
-- Conventional Commits를 따른다.
-- 커밋 type은 `feat:`, `fix:`, `refactor:`, `docs:`처럼 영어로 쓴다.
-- 콜론 뒤 설명은 한국어로 작성한다.
-
-## Agent Guidelines
+## Karpathy-Inspired Agent Guidelines
 
 이 지침은 속도보다 신중함을 약간 더 우선한다. 오타 수정이나 명확한 한 줄 변경 같은 단순 작업에는 과하게 적용하지 말고 판단해서 진행한다.
 
@@ -56,3 +50,8 @@
 - 여러 단계 작업은 각 단계마다 검증 방법을 붙인 짧은 계획을 세운다.
 
 강한 성공 기준은 에이전트가 독립적으로 반복 검증하게 만든다. 약한 기준은 지속적인 확인 요청을 만든다.
+
+## Additional Rules
+
+- Git/커밋 메시지 규칙은 `rules/git.md`를 따른다.
+- 리뷰 단축어 규칙은 `rules/review-shortcuts.md`를 따른다.

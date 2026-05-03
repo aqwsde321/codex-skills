@@ -1,0 +1,7 @@
+interface:
+  display_name: "Review Fix Test / 변경리뷰"
+  short_description: "변경리뷰, 커밋리뷰, 동시리뷰와 검증 반복"
+  default_prompt: "Use $review-fix-test to 현재 변경분을 새 에이전트로 리뷰하고 필요한 수정과 검증을 진행해줘."
+
+policy:
+  allow_implicit_invocation: true
