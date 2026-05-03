@@ -1,0 +1,7 @@
+interface:
+  display_name: "Review Fix Commit"
+  short_description: "새 에이전트로 최근 커밋 리뷰 후 커밋"
+  default_prompt: "Use $review-fix-commit to 새 에이전트로 마지막 커밋을 리뷰하고, 문제 있으면 수정하고 테스트 후 한국어 Conventional Commit으로 커밋해줘."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Review Until Clean"
+  short_description: "수정할 것 없을 때까지 반복 리뷰"
+  default_prompt: "Use $review-fix-until-clean to 새 에이전트로 현재 변경분을 더 이상 수정할 사항이 없을 때까지 최대 10번 반복 리뷰하고 개선해줘."
+
+policy:
+  allow_implicit_invocation: true
