@@ -1,0 +1,7 @@
+interface:
+  display_name: "10설계 / Plan Grill"
+  short_description: "계획을 한 질문씩 압박해 모호함과 분기를 줄임"
+  default_prompt: "Use $plan-grill to 10설계: 이 계획을 구현 전에 질문으로 검증해줘."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,6 +1,6 @@
 ---
 name: api-design-review
-description: Use when a user asks to review a feature plan or flow document and draft API endpoints, request/response fields, processing notes, and API design edge cases before implementation. Project-specific API conventions and OpenAPI specs override Spring/REST fallback conventions.
+description: Use when a user asks to review a feature plan or flow document and draft API endpoints, request/response fields, processing notes, and API design edge cases before implementation, including Korean shortcuts such as "API리뷰", "엔드포인트리뷰", "API 설계 리뷰", "API 초안 작성", or "기획서리뷰" when the flow is already confirmed. Project-specific API conventions and OpenAPI specs override Spring/REST fallback conventions.
 ---
 
 # API Design Review
@@ -139,6 +139,12 @@ End the draft with:
 - If enum values are unknown, mark them as `확인 필요`.
 - Edge cases must affect API design, DB design, validation policy, response shape, frontend branching, authorization, idempotency, or integration behavior.
 - Avoid style-only or implementation-only edge cases in this review.
+
+## Solution Capture Follow-up
+
+If the review confirms a reusable API convention, edge-case policy, response pattern, idempotency rule, authorization rule, or integration contract that future API work should reuse, suggest `$solution-capture` in one sentence.
+
+Do not create a solution note unless the user confirms.
 
 ## Document Mode
 

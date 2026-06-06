@@ -1,0 +1,7 @@
+interface:
+  display_name: "00큰그림 / Zoom Out"
+  short_description: "낯선 코드 영역의 모듈, 호출자, 책임 경계를 정리"
+  default_prompt: "Use $zoom-out to 00큰그림: 이 코드 영역이 전체 시스템에서 어디에 속하는지 정리해줘."
+
+policy:
+  allow_implicit_invocation: true

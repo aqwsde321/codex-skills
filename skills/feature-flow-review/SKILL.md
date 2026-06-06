@@ -1,6 +1,6 @@
 ---
 name: feature-flow-review
-description: Use when a user asks to review, design, or document a new feature flow before API design or implementation, especially for multi-step features with user branching, state transitions, permissions, tokens, approval, signup, authentication, payment, settlement, account linking, or external integrations.
+description: Use when a user asks to review, design, or document a new feature flow before API design or implementation, including Korean shortcuts such as "기능플로우리뷰", "플로우리뷰", "기능 흐름 정리", or "플로우 문서 작성". Use especially for multi-step features with user branching, state transitions, permissions, tokens, approval, signup, authentication, payment, settlement, account linking, or external integrations.
 ---
 
 # Feature Flow Review
@@ -138,7 +138,7 @@ Include sections that are relevant to the feature:
 After creating or updating the flow document:
 
 - Stop before API detail review.
-- Do not continue even if the user says `API리뷰까지`, `api spec까지`, or `다음 단계까지`.
+- If the user also asked for `API리뷰까지`, `api spec까지`, or `다음 단계까지`, finish the flow review first, then explicitly ask for confirmation before starting `$api-design-review`.
 - If blockers remain, say:
 
 ```text
@@ -150,3 +150,9 @@ After creating or updating the flow document:
 ```text
 플로우 문서를 기준으로 다음 단계는 별도 API 상세 리뷰입니다.
 ```
+
+## Solution Capture Follow-up
+
+If the review produced a reusable domain decision, state transition rule, token/storage policy, external integration pattern, or approval/payment/settlement flow convention, suggest `$solution-capture` in one sentence.
+
+Do not create a solution note unless the user confirms.

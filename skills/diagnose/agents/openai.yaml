@@ -1,0 +1,7 @@
+interface:
+  display_name: "20진단 / Diagnose"
+  short_description: "재현 루프 중심으로 버그와 성능 문제를 체계적으로 진단"
+  default_prompt: "Use $diagnose to 20진단: 이 버그를 재현 루프부터 만들고 원인을 좁혀줘."
+
+policy:
+  allow_implicit_invocation: true

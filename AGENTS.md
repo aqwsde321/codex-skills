@@ -62,7 +62,31 @@
 
 강한 성공 기준은 에이전트가 독립적으로 반복 검증하게 만든다. 약한 기준은 지속적인 확인 요청을 만든다.
 
+### Bug Fix / 장애 수정 원칙
+
+- 운영 에러를 고칠 때는 먼저 원인을 테스트나 최소 재현으로 확인한다.
+- 재현 없이 쿼리, fetch join, transaction, lazy 설정을 추측으로 바꾸지 않는다.
+- JPA/Transaction 문제는 아래 전용 원칙을 우선 적용한다.
+- 재현 테스트를 만들기 어렵다면 로그, 스택트레이스, SQL, 트랜잭션 경계, 데이터 상태를 근거로 원인 가설과 검증 한계를 명시한다.
+- 수정 커밋에는 가능한 한 재현 테스트와 회귀 테스트를 함께 포함한다.
+- 해결책은 증상을 덮는 변경보다 원인을 제거하는 최소 변경을 우선한다.
+
+### JPA / Transaction Bug Fix 원칙
+
+- `LazyInitializationException`, stale entity, dirty checking 누락, bulk update/delete 관련 문제는 먼저 통합테스트로 재현한다.
+- `JOIN FETCH`, `@EntityGraph`, fetch type 변경은 원인 확인 전 기본 해결책으로 사용하지 않는다.
+- `@Modifying(clearAutomatically = true)`는 현재 트랜잭션의 영속성 컨텍스트 전체를 비우므로, 호출 이후 기존 엔티티나 lazy proxy를 계속 쓰는지 반드시 확인한다.
+- bulk update/delete 이후 알림, 이벤트, 외부 API 요청 input을 만들 때는 엔티티를 그대로 넘기지 말고 필요한 값을 미리 스냅샷으로 뽑거나 다시 조회한다.
+- `@SpringBootTest + MockMvc + @Transactional` 테스트는 운영 요청과 다르게 같은 영속성 컨텍스트가 남을 수 있으므로, 요청 전 필요한 id/시간 값을 뽑고 `em.flush(); em.clear();`로 요청 경계를 만든다.
+- Mockito 단위 테스트만으로 JPA lazy/transaction 문제를 검증했다고 판단하지 않는다.
+
 ## Additional Instructions
 
 - Git/커밋 메시지 규칙은 `instructions/git.md`를 따른다.
 - 스킬 호출어와 실행 보조 규칙은 `instructions/skill-shortcuts.md`를 따른다.
+
+## Documented Solutions
+
+- `docs/solutions/`는 과거에 해결한 문제, 디버깅 기록, 재사용 가능한 작업 패턴을 저장하는 지식 저장소다.
+- 문서는 카테고리별 하위 디렉터리에 두고, 가능한 경우 `module`, `tags`, `problem_type` 같은 YAML frontmatter로 검색 가능하게 작성한다.
+- 이미 문서화된 영역을 구현하거나 디버깅할 때 관련 해결 기록이 있는지 확인하면 과거 판단과 실패한 시도를 재사용할 수 있다.
