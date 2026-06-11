@@ -84,6 +84,7 @@
 
 - Git/커밋 메시지 규칙은 `instructions/git.md`를 따른다.
 - 스킬 호출어와 실행 보조 규칙은 `instructions/skill-shortcuts.md`를 따른다.
+- 문서 작성 규칙은 `instructions/docs.md`를 따른다.
 
 ## Documented Solutions
 

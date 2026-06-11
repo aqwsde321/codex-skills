@@ -45,6 +45,7 @@ codex-skills/
 │   └── solutions/
 │       └── README.md
 ├── instructions/
+│   ├── docs.md
 │   ├── git.md
 │   └── skill-shortcuts.md
 └── skills/
