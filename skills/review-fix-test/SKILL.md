@@ -1,6 +1,6 @@
 ---
 name: review-fix-test
-description: Single subagent-backed git review workflow that reviews, fixes, verifies, and optionally commits current changes, the latest commit, or both, checking core risk plus optional Standards and Spec review axes. Use when invoked as `$review-fix-test` or through Korean shortcuts such as "40리뷰", "변경리뷰", "커밋리뷰", "동시리뷰", "반복리뷰", "반복변경리뷰", "반복커밋리뷰", or similar. Supports target=changes|commit|both, positional shorthands like `commit 5`, max review cycles, and verify_max validation retries.
+description: Single subagent-backed git review workflow that reviews, fixes, verifies, and optionally commits current changes, the latest commit, or both, checking core risk plus optional Standards, Spec, and Simplicity review axes. Use when invoked as `$review-fix-test` or through Korean shortcuts such as "40리뷰", "변경리뷰", "커밋리뷰", "동시리뷰", "반복리뷰", "반복변경리뷰", "반복커밋리뷰", "과설계리뷰", "단순화리뷰", or similar. Supports target=changes|commit|both, positional shorthands like `commit 5`, max review cycles, and verify_max validation retries.
 ---
 
 # Review Fix Test
@@ -29,6 +29,7 @@ $review-fix-test target=both max=3
 $review-fix-test spec=docs/features/example.md
 $review-fix-test standards=AGENTS.md,docs/adr
 $review-fix-test 기준문서: AGENTS.md docs/adr
+$review-fix-test simplicity=true
 ```
 
 Accept positional shorthands:
@@ -56,6 +57,7 @@ Map Korean shortcuts:
 - `반복변경리뷰`: `target=changes max=10`
 - `반복커밋리뷰`: `target=commit max=10`
 - `반복리뷰`: `target=changes max=10`
+- `과설계리뷰`, `단순화리뷰`, `삭제리뷰`: `target=changes max=1 simplicity=true review_only=true`
 
 If the user adds a number or `max=<n>` to a shortcut, use that value instead of the shortcut default. Examples:
 
@@ -67,6 +69,8 @@ If the user adds a number or `max=<n>` to a shortcut, use that value instead of 
 ```
 
 Ask for clarification before starting when target values conflict, numeric values are invalid, or the request gives contradictory `commit` values. If `max` or `verify_max` is greater than 20, confirm before using it.
+
+If the user asks to apply, fix, 반영, or 고쳐줘 with `과설계리뷰`, `단순화리뷰`, or `삭제리뷰`, set `review_only=false`.
 
 ## Targets
 
@@ -88,7 +92,7 @@ For `target=both`, review both targets as separate sections. Keep findings label
 
 ## Review Axes
 
-Always run the Core Risk axis. Add Standards and Spec axes when evidence exists.
+Always run the Core Risk axis. Add Simplicity when the user requests over-engineering, simplification, deletion, or YAGNI review. Add Standards and Spec axes when evidence exists.
 
 ### Core Risk
 
@@ -112,6 +116,20 @@ Collect standards sources from:
 - `.editorconfig`, lint, format, typecheck, and build config files as supporting evidence
 
 Do not re-check what automated tooling already verifies. Use config files to understand conventions, then rely on verification commands for machine-enforced rules.
+
+### Simplicity
+
+Use this axis when the user asks for over-engineering, simplification, deletion, YAGNI, or `simplicity=true`.
+
+Review for behavior-preserving reductions:
+
+- Unrequested abstractions, layers, factories, interfaces, options, or config
+- New dependencies that standard library, language/runtime, platform, or already-installed dependencies cover
+- Reimplemented helpers, utilities, types, or patterns already present in the codebase
+- Boilerplate, speculative flexibility, dead flags, or one-caller wrappers
+- The same behavior expressed with fewer files or fewer lines
+
+Do not trade away input validation at trust boundaries, data-loss prevention, security, accessibility, or the user-requested behavior. Do not flag focused tests for non-trivial logic as bloat. A Simplicity finding is actionable only when it names the concrete smaller replacement and the replacement is lower-risk than the current code.
 
 ### Spec
 
@@ -141,9 +159,11 @@ If a cycle has no actionable findings in the initial explorer review, stop after
 
 ## Triage Criteria
 
-Prioritize Core Risk findings first, then Standards violations, then Spec mismatches.
+Prioritize Core Risk findings first, then Spec mismatches, Standards violations, and Simplicity reductions.
 
 Treat a Standards or Spec finding as actionable only when it cites a concrete source and the change clearly violates it.
+
+Treat a Simplicity finding as actionable only when it preserves behavior and does not remove necessary validation, security, accessibility, or verification.
 
 Avoid style or preference comments unless they create a concrete maintainability risk.
 
@@ -177,11 +197,14 @@ Spec source: <none|file path with relevant excerpts or line references>
 선택된 git 변경분을 코드리뷰 관점으로 검토해라.
 활성 리뷰 축:
 - Core Risk: 항상 검토한다.
+- Simplicity: simplicity=true이거나 과설계/단순화/삭제 리뷰 요청이면 동작 보존 단순화를 검토한다.
 - Standards: standards sources가 있으면 문서화된 기준 위반만 지적한다.
 - Spec: spec source가 있으면 요구사항 누락, 부분 구현, scope creep, 잘못 구현된 요구사항을 지적한다.
 
 버그, 회귀, 엣지케이스, 테스트 누락/불일치를 최우선으로 보고,
 보안/데이터 손상/동시성/성능 회귀 리스크가 있으면 함께 지적해라.
+Simplicity finding은 요청받지 않은 추상화, 새 의존성, 재구현, 보일러플레이트, 한 호출자 wrapper, 줄일 수 있는 중복만 지적하고,
+각 finding마다 더 작은 대체안을 구체적으로 제시해라. 검증, 보안, 접근성, 신뢰 경계 validation은 삭제 대상으로 보지 마라.
 스타일 취향은 실제 유지보수 리스크가 있을 때만 언급해라.
 Standards와 Spec finding은 기준 문서나 spec source를 함께 인용해라.
 수정하지 말고 actionable findings만 심각도순으로 파일/라인 근거와 함께 보고해라.
