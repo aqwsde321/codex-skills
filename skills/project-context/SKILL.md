@@ -99,7 +99,7 @@ CLI fallback:
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
 - app/graph entrypoint, route/controller 파일, database/schema/migration 파일, tests/evals, skill/playbook, operational script를 inventory 후보로 본다.
 - `.env`, private key, token, credential 파일은 읽지 않는다. 필요하면 설정 파일 존재와 non-secret setup 위치만 문서화한다.
-- 기존 `docs/project-context.md`, `docs/project-context/`, README/runbook/docs tree
+- 기존 `docs/project-context.md`, `docs/project-context/`, `openwiki/quickstart.md`, `openwiki/`, README/runbook/docs tree
 - 기존 README/docs/runbook은 primary source로 취급한다. 유효하면 요약하고 링크하며, 통째로 복제하지 않는다.
 - `project_context_update.py plan`의 affected/unmapped 변경
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
@@ -249,6 +249,7 @@ metadata 기록 규칙:
 - no-op update면 metadata만 새로 쓰지 않는다. 이전 문서가 어떤 source 기준인지 보존한다.
 - update는 이전 성공 metadata의 `gitHead`를 우선 기준으로 삼아 `git log <gitHead>..HEAD`, `git diff <gitHead>..HEAD`, `git diff HEAD`, `git status --short`를 모두 확인한다. project-context metadata가 없고 OpenWiki metadata가 있으면 `openwiki/.last-update.json`의 `gitHead`/`updatedAt`을 기준으로 삼는다.
 - update는 변경 파일을 현재 문서의 source link와 매칭해 `affected_docs`를 만들고, 매칭되지 않은 변경은 `unmapped_changes`로 둔다.
+- `openwiki/` 문서 변경은 기존 문서 source 변경으로 보고 primary doc 갱신 후보에 포함하되, `openwiki/.last-update.json`만 바뀐 경우는 metadata 변경으로 무시한다.
 - rename이 감지되면 old path와 new path를 모두 영향 계산에 넣고 `renamed_paths`로 드러낸다.
 - `affected_docs`/`unmapped_changes`의 파일은 필요한 만큼 다시 읽어 현재 코드 동작을 확인한 뒤 문서를 고친다. 커밋 메시지나 diff 목록만으로 문서를 갱신하지 않는다.
 - 새 문서 생성 뒤에는 `--run-command init`, 기존 문서 갱신 뒤에는 `--run-command update`를 쓴다.

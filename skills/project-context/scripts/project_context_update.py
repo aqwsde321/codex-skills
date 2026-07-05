@@ -17,7 +17,7 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "8"
+GENERATOR_VERSION = "9"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -43,6 +43,7 @@ HIGH_SIGNAL_PATHS = {
     "Makefile",
     "justfile",
     "Dockerfile",
+    "openwiki/quickstart.md",
     "playbook.md",
     "SKILL.md",
 }
@@ -64,6 +65,7 @@ HIGH_SIGNAL_PREFIXES = (
     "db/",
     "database/",
     "migrations/",
+    "openwiki/",
 )
 
 
@@ -326,7 +328,11 @@ def path_affects_source(change_path: str, source_path: str) -> bool:
 
 
 def is_generated_doc_path(path: str) -> bool:
-    return path == DEFAULT_DOC or path.startswith(f"{DEFAULT_DOC_DIR}/")
+    return (
+        path == DEFAULT_DOC
+        or path.startswith(f"{DEFAULT_DOC_DIR}/")
+        or path == OPENWIKI_METADATA
+    )
 
 
 def strip_agent_reference(text: str) -> str:
