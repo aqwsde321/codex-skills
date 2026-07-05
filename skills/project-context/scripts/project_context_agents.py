@@ -55,6 +55,8 @@ def replace_marked_section(text: str) -> tuple[str, bool]:
 
 
 def ensure_file(path: Path, create_if_missing: bool) -> tuple[str, bool]:
+    if path.is_symlink():
+        return "skipped-symlink", False
     if not path.exists():
         if not create_if_missing:
             return "skipped-missing", False

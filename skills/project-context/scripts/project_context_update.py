@@ -126,7 +126,7 @@ def iter_relative_links(markdown: str):
 def discover_docs(root: Path, primary_doc: str) -> list[str]:
     docs = [primary_doc]
     doc_dir = root / DEFAULT_DOC_DIR
-    if doc_dir.exists() and doc_dir.is_dir():
+    if doc_dir.exists() and not doc_dir.is_symlink() and doc_dir.is_dir():
         for path in sorted(doc_dir.rglob("*.md")):
             if path.is_symlink() or not path.is_file():
                 continue
@@ -144,6 +144,8 @@ def read_text(path: Path) -> str:
 
 
 def read_json(path: Path) -> dict | None:
+    if path.is_symlink():
+        return None
     try:
         raw = path.read_text(encoding="utf-8")
         value = json.loads(raw)
@@ -157,7 +159,10 @@ def is_structured_update_metadata(metadata: dict) -> bool:
 
 
 def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
-    markdown = read_text(root / doc_rel)
+    doc_path = root / doc_rel
+    if doc_path.is_symlink() or not doc_path.is_file():
+        return None
+    markdown = read_text(doc_path)
     match = SOURCE_COMMIT_RE.search(markdown)
     return match.group(1) if match else None
 
@@ -251,6 +256,9 @@ def collect_doc_sources(root: Path, docs: list[str]) -> dict[str, list[str]]:
     source_map: dict[str, list[str]] = {}
     for doc in docs:
         doc_path = root / doc
+        if doc_path.is_symlink() or not doc_path.is_file():
+            source_map[doc] = []
+            continue
         doc_dir = doc_path.parent
         sources: list[str] = []
         markdown = read_text(doc_path)
@@ -383,7 +391,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
         add_file(primary_doc, primary_path)
 
     doc_dir = root / DEFAULT_DOC_DIR
-    if doc_dir.exists() and doc_dir.is_dir():
+    if doc_dir.exists() and not doc_dir.is_symlink() and doc_dir.is_dir():
         paths = sorted(doc_dir.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
         for path in paths:
             rel = path.relative_to(root).as_posix()
@@ -687,6 +695,9 @@ def main() -> int:
     if args.command in {"plan", "write-plan"}:
         plan = build_plan(root, args.doc, args.metadata)
         if args.command == "write-plan":
+            if (root / args.plan_path).parent.is_symlink():
+                print(f"temporary plan directory must not be a symlink: {(Path(args.plan_path).parent).as_posix()}", file=sys.stderr)
+                return 1
             plan_path = write_temp_plan(root, args.plan_path, plan)
             if args.json:
                 print(json.dumps({"plan_path": args.plan_path, "recommended_action": plan.get("recommended_action")}, indent=2, ensure_ascii=False))
@@ -703,8 +714,16 @@ def main() -> int:
     if (root / args.plan_path).exists():
         print(f"temporary plan must be deleted before recording metadata: {args.plan_path}", file=sys.stderr)
         return 1
-    if not (root / args.doc).is_file():
-        print(f"primary context document must exist before recording metadata: {args.doc}", file=sys.stderr)
+    doc_path = root / args.doc
+    metadata_path = root / args.metadata
+    if metadata_path.parent.is_symlink():
+        print(f"metadata directory must not be a symlink: {(Path(args.metadata).parent).as_posix()}", file=sys.stderr)
+        return 1
+    if doc_path.is_symlink() or not doc_path.is_file():
+        print(f"primary context document must be a regular file before recording metadata: {args.doc}", file=sys.stderr)
+        return 1
+    if metadata_path.is_symlink():
+        print(f"metadata path must not be a symlink: {args.metadata}", file=sys.stderr)
         return 1
 
     metadata = record_metadata(root, args.doc, args.metadata, args.run_command, args.model, args.if_changed)

@@ -92,7 +92,7 @@ def iter_markdown_links(markdown: str):
 def discover_docs(root: Path, primary_doc: str) -> list[str]:
     docs = [primary_doc]
     doc_dir = root / DEFAULT_DOC_DIR
-    if doc_dir.exists() and doc_dir.is_dir():
+    if doc_dir.exists() and not doc_dir.is_symlink() and doc_dir.is_dir():
         for path in sorted(doc_dir.rglob("*.md")):
             if path.is_symlink() or not path.is_file():
                 continue
@@ -103,6 +103,8 @@ def discover_docs(root: Path, primary_doc: str) -> list[str]:
 
 
 def read_json(path: Path) -> tuple[dict | None, str | None]:
+    if path.is_symlink():
+        return None, "metadata must not be a symlink"
     try:
         raw = path.read_text(encoding="utf-8")
         value = json.loads(raw)
@@ -166,7 +168,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
         add_file(primary_doc, primary_path)
 
     doc_dir = root / DEFAULT_DOC_DIR
-    if doc_dir.exists() and doc_dir.is_dir():
+    if doc_dir.exists() and not doc_dir.is_symlink() and doc_dir.is_dir():
         paths = sorted(doc_dir.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
         for path in paths:
             rel = path.relative_to(root).as_posix()
@@ -197,12 +199,15 @@ def extract_evidence_section(markdown: str) -> str:
 def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    doc_path = (root / doc_rel).resolve()
-    if not doc_path.exists():
+    raw_doc_path = root / doc_rel
+    if raw_doc_path.is_symlink():
+        return [f"document must not be a symlink: {doc_rel}"], warnings
+    if not raw_doc_path.exists():
         return [f"missing document: {doc_rel}"], warnings
-    if not doc_path.is_file():
+    if not raw_doc_path.is_file():
         return [f"document is not a file: {doc_rel}"], warnings
 
+    doc_path = raw_doc_path.resolve()
     markdown = doc_path.read_text(encoding="utf-8", errors="replace")
     body = FRONTMATTER_RE.sub("", markdown).strip()
     absolute_links = [
@@ -282,6 +287,9 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
     errors: list[str] = []
     warnings: list[str] = []
     metadata_path = root / DEFAULT_METADATA
+    if metadata_path.is_symlink():
+        errors.append(f"update metadata must not be a symlink: {DEFAULT_METADATA}")
+        return errors, warnings
     if not metadata_path.exists():
         warnings.append(f"missing update metadata: {DEFAULT_METADATA}")
         return errors, warnings
@@ -408,6 +416,8 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     warnings: list[str] = []
     if (root / TEMP_PLAN).exists():
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
+    if (root / DEFAULT_DOC_DIR).is_symlink():
+        errors.append(f"context doc directory must not be a symlink: {DEFAULT_DOC_DIR}")
     docs = discover_docs(root, doc_rel)
     docs = [doc for doc in docs if doc != TEMP_PLAN]
     metadata_errors, metadata_warnings = validate_metadata(root, docs)
