@@ -177,6 +177,29 @@ def parse_name_status(output: str | None) -> list[dict]:
     return rows
 
 
+def parse_status_short(output: str | None) -> list[dict]:
+    if not output:
+        return []
+    rows = []
+    for raw_line in output.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        if len(line) >= 3 and line[2] == " ":
+            status = line[:2].strip() or line[:2]
+            path = line[3:]
+        else:
+            parts = line.strip().split(maxsplit=1)
+            status = parts[0]
+            path = parts[1] if len(parts) > 1 else ""
+        if " -> " in path:
+            old_path, new_path = path.split(" -> ", 1)
+            rows.append({"status": status, "path": new_path, "old_path": old_path})
+        elif path:
+            rows.append({"status": status, "path": path})
+    return rows
+
+
 def collect_git_changes(
     root: Path,
     previous_commit: str | None,
@@ -327,6 +350,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
     git_status = run_git(root, ["status", "--short"])
+    status_changes = parse_status_short(git_status)
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
@@ -336,7 +360,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         previous_updated_at,
     )
     changed_paths = []
-    for row in [*since_changes, *dirty_changes]:
+    for row in [*since_changes, *dirty_changes, *status_changes]:
         path = row.get("path")
         if isinstance(path, str) and path not in changed_paths:
             changed_paths.append(path)
@@ -370,6 +394,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "current_head_short": short_head,
         "git_status_label": "git status --short",
         "git_status": git_status,
+        "status_changes": status_changes,
         "git_head_label": "git rev-parse HEAD",
         "previous_commit": previous_commit,
         "previous_updated_at": previous_updated_at,
