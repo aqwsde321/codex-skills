@@ -54,7 +54,7 @@ OpenWiki처럼 먼저 실행 모드를 고른다.
 ```bash
 git rev-parse --show-toplevel
 git rev-parse --short HEAD
-git status --short
+git status --short --untracked-files=all
 ls docs/project-context.md AGENTS.md README.md 2>/dev/null
 ```
 
@@ -74,7 +74,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
-- `git status --short`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
+- `git status --short --untracked-files=all`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
 - 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다.
@@ -97,6 +97,7 @@ CLI fallback:
 4. high-signal context만 읽는다.
 
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
+- app/graph entrypoint, route/controller 파일, database/schema/migration 파일, tests/evals, skill/playbook, operational script를 inventory 후보로 본다.
 - `.env`, private key, token, credential 파일은 읽지 않는다. 필요하면 설정 파일 존재와 non-secret setup 위치만 문서화한다.
 - 기존 `docs/project-context.md`, `docs/project-context/`, README/runbook/docs tree
 - 기존 README/docs/runbook은 primary source로 취급한다. 유효하면 요약하고 링크하며, 통째로 복제하지 않는다.

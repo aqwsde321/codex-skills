@@ -42,6 +42,8 @@ HIGH_SIGNAL_PATHS = {
     "Makefile",
     "justfile",
     "Dockerfile",
+    "playbook.md",
+    "SKILL.md",
 }
 HIGH_SIGNAL_PREFIXES = (
     ".github/",
@@ -50,6 +52,17 @@ HIGH_SIGNAL_PREFIXES = (
     "docs/",
     "config/",
     "scripts/",
+    "bin/",
+    "ops/",
+    "test/",
+    "tests/",
+    "e2e/",
+    "evals/",
+    "schema/",
+    "schemas/",
+    "db/",
+    "database/",
+    "migrations/",
 )
 
 
@@ -421,7 +434,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
-    git_status = run_git(root, ["status", "--short"])
+    git_status = run_git(root, ["status", "--short", "--untracked-files=all"])
     status_changes = parse_status_short(git_status)
     last_update_metadata = openwiki_update_metadata(read_json(root / metadata_rel))
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
@@ -481,7 +494,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "generator_version": GENERATOR_VERSION,
         "current_head": full_head,
         "current_head_short": short_head,
-        "git_status_label": "git status --short",
+        "git_status_label": "git status --short --untracked-files=all",
         "git_status": git_status,
         "status_changes": status_changes,
         "git_head_label": "git rev-parse HEAD",
