@@ -28,6 +28,7 @@ HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/v
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
+PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
 
 
 def git_output(root: Path, args: list[str]) -> str | None:
@@ -447,10 +448,19 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
             warnings.append(f"{agent_file} is not a file")
             continue
         agent_text = agent_path.read_text(encoding="utf-8", errors="replace")
+        start_count = agent_text.count(AGENT_START_MARKER)
+        end_count = agent_text.count(AGENT_END_MARKER)
         if CONTEXT_DOC_TEXT not in agent_text:
             warnings.append(f"{agent_file} does not mention {CONTEXT_DOC_TEXT}")
-        elif AGENT_START_MARKER not in agent_text or AGENT_END_MARKER not in agent_text:
-            warnings.append(f"{agent_file} project context reference is unmarked")
+        if start_count != 1 or end_count != 1:
+            warnings.append(f"{agent_file} project context reference should have exactly one marked section")
+        marker_start = agent_text.find(AGENT_START_MARKER)
+        marker_end = agent_text.find(AGENT_END_MARKER)
+        for section_match in PROJECT_CONTEXT_SECTION_RE.finditer(agent_text):
+            marked = marker_start != -1 and marker_end != -1 and marker_start < section_match.start() < marker_end
+            if not marked:
+                warnings.append(f"{agent_file} has unmarked Project Context section; run project_context_agents.py")
+                break
 
     if errors:
         return 1, errors, warnings
