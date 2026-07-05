@@ -18,7 +18,7 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "15"
+GENERATOR_VERSION = "16"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -444,6 +444,38 @@ def soft_diff_budget_warnings(
     return warnings
 
 
+def format_git_summary_section(command: str, output: str | None) -> str:
+    text = output.strip() if isinstance(output, str) else ""
+    return f"$ {command}\n{text if text else '(no output)'}"
+
+
+def build_git_summary(plan: dict) -> str:
+    sections = [
+        format_git_summary_section(plan["git_status_label"], plan.get("git_status")),
+        format_git_summary_section(plan["git_head_label"], plan.get("current_head") or "(unknown)"),
+    ]
+    if plan.get("missing_last_update_warning"):
+        sections.append("No prior project-context/OpenWiki update timestamp was found.")
+    sections.append(format_git_summary_section(plan["commit_evidence_label"], plan.get("commit_evidence")))
+    sections.append(format_git_summary_section(plan["dirty_changes_label"], run_git_block_from_changes(plan.get("dirty_changes", []))))
+    return "\n\n".join(sections)
+
+
+def run_git_block_from_changes(rows: list[dict]) -> str:
+    if not rows:
+        return ""
+    lines = []
+    for row in rows:
+        status = row.get("status", "?")
+        path = row.get("path", "")
+        old_path = row.get("old_path")
+        if old_path:
+            lines.append(f"{status}\t{old_path}\t{path}")
+        else:
+            lines.append(f"{status}\t{path}")
+    return "\n".join(lines)
+
+
 def stable_doc_bytes(path: Path) -> bytes:
     markdown = path.read_text(encoding="utf-8", errors="replace")
     if not markdown.startswith("---\n"):
@@ -601,7 +633,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         recommended_action = "review-recent-history"
     else:
         recommended_action = "no-op"
-    return {
+    plan = {
         "generator": GENERATOR,
         "generator_version": GENERATOR_VERSION,
         "current_head": full_head,
@@ -637,6 +669,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "soft_diff_budget_warnings": budget_warnings,
         "recommended_action": recommended_action,
     }
+    plan["git_summary"] = build_git_summary(plan)
+    return plan
 
 
 def format_changes(rows: list[dict]) -> list[str]:
@@ -688,6 +722,10 @@ def format_plan(plan: dict) -> str:
     else:
         lines.append("- (none)")
     lines.extend([
+        "",
+        "## OpenWiki-Style Git Summary",
+        "",
+        *format_block(plan.get("git_summary")),
         "",
         "## Last Update Metadata",
         *format_json_block(plan.get("last_update_metadata")),
@@ -770,6 +808,10 @@ def format_temp_plan(plan: dict) -> str:
         f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
+        "",
+        "## OpenWiki-Style Git Summary",
+        "",
+        *format_block(plan.get("git_summary")),
         "",
         "## Last Update Metadata",
         "",

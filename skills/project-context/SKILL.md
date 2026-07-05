@@ -107,6 +107,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `soft_diff_budget_warning`/`soft_diff_budget_warnings`: OpenWiki식 update budget 경고다. source 변경이 작거나 primary/index 문서가 low-signal 변경만으로 영향 받으면 broad rewrite를 하지 않는다.
 - `git status --short`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
+- `git_summary`: OpenWiki의 `Git change summary`와 같은 한 덩어리 git evidence다. 문서 갱신 전 이 요약을 먼저 읽고, 필요한 파일만 다시 확인한다.
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
 - helper script의 `--doc`, `--metadata`, `--plan-path` 값은 repo-relative path만 쓴다. absolute path, `..` parent traversal, symlink parent는 거부된다.
 - 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다. `docs/project-context/.metadata.json`이 없으면 OpenWiki 호환 `openwiki/.last-update.json`을 fallback으로 읽는다.
