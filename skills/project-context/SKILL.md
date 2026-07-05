@@ -47,6 +47,17 @@ OpenWiki처럼 먼저 실행 모드를 고른다.
 
 `chat` 중 사용자가 생성/갱신 방법을 물으면 절차를 설명한다. 실제 문서 수정은 사용자가 세팅/생성/갱신을 요청했을 때만 한다.
 
+## Helper Command Reference
+
+- `project_context_update.py snapshot .`: 현재 context 문서 snapshot hash를 출력한다.
+- `project_context_update.py plan .`: 이전 성공 run 이후 git/status/source-link 기반 갱신 계획을 출력한다.
+- `project_context_update.py write-plan .`: `docs/project-context/_plan.md` 임시 작성 계획을 만든다.
+- `project_context_update.py delete-plan .`: 임시 계획을 안전하게 삭제한다.
+- `validate_project_context.py .`: context 문서, metadata, source link, agent instruction을 검증한다.
+- `project_context_update.py record . --run-command init|update --if-changed --before-hash <hash>`: 실제 문서 변경이 있을 때만 metadata를 기록한다.
+- `project_context_agents.py .`: top-level `AGENTS.md`/`CLAUDE.md`에 project-context 안내 섹션을 보장한다.
+- `python3 <script> --help`: 현재 옵션과 인자를 확인한다.
+
 ## 생성/갱신 절차
 
 1. repo root와 현재 상태를 확인한다.
