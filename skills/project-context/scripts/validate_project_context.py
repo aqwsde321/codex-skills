@@ -23,6 +23,7 @@ NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
+HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/var/folders)/[^\s)`>]+")
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
@@ -178,6 +179,8 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     ]
     for link in absolute_links:
         errors.append(f"{doc_rel}: absolute link path is not allowed: {link}")
+    for match in HOST_ABSOLUTE_PATH_RE.finditer(markdown):
+        errors.append(f"{doc_rel}: host absolute path is not allowed: {match.group(0)}")
 
     commit_hashes = set(COMMIT_HASH_RE.findall(body))
     if len(commit_hashes) >= 3:

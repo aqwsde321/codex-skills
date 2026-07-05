@@ -203,6 +203,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
 - Markdown link target에 host absolute path가 있으면 실패
+- 본문이나 코드블록에 `/Users/...`, `/home/...`, `/private/...` 같은 host absolute path가 있으면 실패
 - 본문에 commit hash 목록이 많으면 경고
 - 모든 context 문서에 `## 근거` 섹션 존재
 - multi-page index가 모든 하위 context 문서로 링크
