@@ -636,7 +636,8 @@ def is_semantically_current_agent_section(section: str) -> bool:
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    if (root / TEMP_PLAN).exists():
+    temp_plan_path = root / TEMP_PLAN
+    if temp_plan_path.exists() or temp_plan_path.is_symlink():
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
     if (root / DEFAULT_DOC_DIR).is_symlink():
         errors.append(f"context doc directory must not be a symlink: {DEFAULT_DOC_DIR}")

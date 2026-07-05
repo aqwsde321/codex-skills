@@ -18,7 +18,7 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "11"
+GENERATOR_VERSION = "12"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -1009,7 +1009,8 @@ def main() -> int:
             print(content_hash)
         return 0
 
-    if (root / args.plan_path).exists():
+    plan_path = root / args.plan_path
+    if plan_path.exists() or plan_path.is_symlink():
         print(f"temporary plan must be deleted before recording metadata: {args.plan_path}", file=sys.stderr)
         return 1
     doc_path = root / args.doc
