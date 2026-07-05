@@ -258,7 +258,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - `docs/project-context.md` 존재
 - `docs/project-context/.metadata.json`은 성공 갱신 후 기록
 - metadata의 OpenWiki 호환 `updatedAt`, `command`, `model` 구조가 유효
-- metadata의 `updatedAt`/`updated_at`이 OpenWiki `new Date().toISOString()` 형식의 UTC milliseconds timestamp가 아니거나 서로 다르면 경고
+- metadata의 `updatedAt`/`updated_at`이 없거나 OpenWiki `new Date().toISOString()` 형식의 UTC milliseconds timestamp가 아니거나 서로 다르면 경고
 - metadata의 `model`이 OpenWiki 호환 model id 형식이 아니거나 주변 공백이 있으면 경고하고, `record --model`은 URL/빈 값/120자 초과 값을 거부하며 저장 시 trim
 - metadata의 `gitHead`가 있으면 현재 git에서 조회 가능한 commit이고, 없으면 update가 `updatedAt` 기준으로 fallback한다고 경고
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit

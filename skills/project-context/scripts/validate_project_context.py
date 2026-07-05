@@ -521,6 +521,8 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
             warnings.append(f"{DEFAULT_METADATA}: updated_at should match OpenWiki new Date().toISOString() format")
         if isinstance(updated_at, str) and updated_at.strip() and local_updated_at != updated_at:
             warnings.append(f"{DEFAULT_METADATA}: updated_at should match updatedAt")
+    else:
+        warnings.append(f"{DEFAULT_METADATA}: missing project-context metadata field: updated_at")
     model = metadata.get("model")
     if isinstance(model, str) and model.strip() and not is_valid_model_id(model):
         warnings.append(f"{DEFAULT_METADATA}: model should be an OpenWiki-compatible model id")
