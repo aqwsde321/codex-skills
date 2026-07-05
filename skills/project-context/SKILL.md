@@ -76,6 +76,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
 - `git status --short`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
+- shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
 - 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다.
 - `last_update_metadata`: OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`만 보여준다. 이 값으로 이전 run의 성격과 기준 commit을 확인한다.
 - `snapshot`: OpenWiki처럼 문서 작성 전 content hash를 잡는다. 완료 후 `record --before-hash <hash> --if-changed`로 실제 문서 변경이 있을 때만 metadata를 기록한다.
@@ -102,6 +103,7 @@ CLI fallback:
 - `project_context_update.py plan`의 affected/unmapped 변경
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
 - repo root에서 `**/*` 전체 훑기는 피한다. `rg --files`와 디렉터리/확장자 기준 targeted read를 쓴다.
+- `rg`, `find`, `ls`, `git` 범위는 target repo 내부로 제한한다. 외부 workspace, parent repo, home directory를 discovery source로 삼지 않는다.
 - 기존 문서가 코드/git 증거와 충돌하면 stale 가능성을 표시하고 현재 source evidence를 우선한다.
 
 repo가 크고 multi-agent 도구가 있으면 OpenWiki처럼 read-only 조사만 병렬화한다.
