@@ -72,6 +72,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: review-unmapped-changes`: 변경 파일이 기존 문서 근거와 직접 연결되지 않았다. 새 근거/새 섹션/무시 중 하나를 판단한다.
 - `recommended_action: review-recent-history`: 이전 성공 metadata가 없다. 최근 commit evidence를 읽고 문서 기준점을 잡거나 `record`로 metadata를 생성할지 판단한다.
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
+- `missing_last_update_warning`: 기존 문서는 있지만 이전 성공 metadata/source_commit 기준점이 없다. 최근 commit history와 현재 source를 더 보수적으로 확인한 뒤 편집한다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
 - `soft_diff_budget_warning`/`soft_diff_budget_warnings`: OpenWiki식 update budget 경고다. source 변경이 작거나 primary/index 문서가 low-signal 변경만으로 영향 받으면 broad rewrite를 하지 않는다.
@@ -184,12 +185,14 @@ mode: single-page
 - update run에서는 `project_context_update.py plan`의 영향 계획을 먼저 따른다. 최근 변경과 무관한 문서는 건드리지 않는다.
 - 변경 source가 기존 문서 어느 곳에도 연결되지 않으면, 관련 없는 변경인지 새 문서/근거가 필요한 변경인지 판단한 뒤 기록한다.
 - 커밋 메시지만 믿지 않는다. `affected_docs`/`unmapped_changes`에 나온 파일은 필요한 만큼 다시 읽고, 현재 코드가 실제로 어떻게 동작하는지 확인한 뒤 문서를 갱신한다.
+- shell/git 실행이 불가능하면 filesystem timestamp, 현재 source, 기존 문서 근거로 변경을 추론하되 confidence를 낮게 두고 broad rewrite를 피한다.
 
 8. update run은 surgical하게 한다.
 
 - commit/dirty 변경을 먼저 읽고 `source change -> affected doc -> edit needed -> why` 형태로 짧은 내부 계획을 만든다.
 - 정확한 기존 문장은 유지한다. 틀린 문장만 고친다.
 - formatting-only, table reorder, wording polish만 하는 변경은 하지 않는다.
+- Source Map, git evidence 목록, 일반적인 "주의할 점" 섹션은 source 변경 때문에 실제로 틀린 경우에만 갱신한다.
 - 변경 파일이 5개 미만이면 보통 1-2개 문서만 갱신한다.
 - top-level 제품 동작, setup, navigation이 바뀐 경우에만 index 문서를 크게 갱신한다.
 - 이미 current면 문서를 수정하지 않고 "already current"로 보고한다.

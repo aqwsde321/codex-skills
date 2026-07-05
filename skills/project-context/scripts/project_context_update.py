@@ -507,6 +507,9 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
     has_previous_context = previous_commit is not None or previous_updated_at is not None
+    missing_last_update_warning = None
+    if (root / doc_rel).exists() and not has_previous_context:
+        missing_last_update_warning = "No previous project-context/OpenWiki update baseline was found; review recent git history before editing."
     commit_label, commit_output, since_label, since_changes, dirty_label, dirty_changes = collect_git_changes(
         root,
         previous_commit,
@@ -570,6 +573,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "last_update_metadata": last_update_metadata,
         "last_update_metadata_source": last_update_metadata_source,
         "has_previous_context": has_previous_context,
+        "missing_last_update_warning": missing_last_update_warning,
         "previous_commit_source": previous_source,
         "metadata_path": metadata_rel,
         "primary_doc": doc_rel,
@@ -630,6 +634,7 @@ def format_plan(plan: dict) -> str:
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         "",
         "## Soft Diff Budget Warnings",
@@ -713,6 +718,7 @@ def format_temp_plan(plan: dict) -> str:
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         "",
@@ -911,6 +917,7 @@ def main() -> int:
                     {
                         "plan_path": args.plan_path,
                         "recommended_action": plan.get("recommended_action"),
+                        "missing_last_update_warning": plan.get("missing_last_update_warning"),
                         "soft_diff_budget_warning": plan.get("soft_diff_budget_warning"),
                         "soft_diff_budget_warnings": plan.get("soft_diff_budget_warnings", []),
                         "last_update_metadata_source": plan.get("last_update_metadata_source"),
