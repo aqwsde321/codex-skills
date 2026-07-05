@@ -235,6 +235,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - multi-page 하위 문서가 index 문서로 링크
 - `docs/project-context/_plan.md`가 남아 있으면 실패
 - 얇은 하위 문서, 짧은 single-file section directory, 8개 초과 문서는 경고
+- tracked primary source file이 10개 이하인데 context 문서가 3개 초과면 과분할 경고
 - `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - `AGENTS.md`/`CLAUDE.md`의 project-context 안내가 unmarked/stale/중복이면 경고
 - marked 안내가 `docs/project-context.md`, `codebase-memory-mcp`, `$project-context`를 모두 담지 않으면 stale로 본다.

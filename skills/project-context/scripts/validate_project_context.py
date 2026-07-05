@@ -15,6 +15,8 @@ DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
 MAX_INITIAL_DOCS = 8
+SMALL_REPO_SOURCE_FILE_LIMIT = 10
+SMALL_REPO_DOC_LIMIT = 3
 MIN_SUBPAGE_BODY_CHARS = 500
 MIN_SINGLE_FILE_SECTION_CHARS = 1500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -38,6 +40,54 @@ SKILL_TRIGGER_TEXT = "$project-context"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
+PRIMARY_SOURCE_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".gradle",
+    ".graphql",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".m",
+    ".mm",
+    ".php",
+    ".proto",
+    ".py",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".sql",
+    ".swift",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+PRIMARY_SOURCE_NAMES = {
+    "Dockerfile",
+    "Makefile",
+    "justfile",
+    "package.json",
+    "pom.xml",
+    "pyproject.toml",
+    "go.mod",
+    "Cargo.toml",
+}
+IGNORED_SOURCE_NAMES = {
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "Cargo.lock",
+    "go.sum",
+}
 
 
 def git_output(root: Path, args: list[str]) -> str | None:
@@ -65,6 +115,11 @@ def git_resolve_commit(root: Path, ref: str) -> str | None:
 
 def git_full_head(root: Path) -> str | None:
     return git_output(root, ["rev-parse", "HEAD"])
+
+
+def git_tracked_files(root: Path) -> list[str]:
+    output = git_output(root, ["ls-files"])
+    return output.splitlines() if output else []
 
 
 def is_external_target(target: str) -> bool:
@@ -194,6 +249,21 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 def is_context_doc_rel(path: str) -> bool:
     return path == DEFAULT_DOC or path.startswith(f"{DEFAULT_DOC_DIR}/")
+
+
+def is_primary_source_file(path: str) -> bool:
+    if is_context_doc_rel(path):
+        return False
+    name = Path(path).name
+    if name in IGNORED_SOURCE_NAMES:
+        return False
+    if name in PRIMARY_SOURCE_NAMES:
+        return True
+    return Path(path).suffix in PRIMARY_SOURCE_SUFFIXES
+
+
+def count_primary_source_files(root: Path) -> int:
+    return sum(1 for path in git_tracked_files(root) if is_primary_source_file(path))
 
 
 def extract_evidence_section(markdown: str) -> str:
@@ -457,6 +527,11 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     warnings.extend(metadata_warnings)
     if len(docs) > MAX_INITIAL_DOCS:
         warnings.append(f"many context docs: {len(docs)}; initial OpenWiki-style runs usually stay at {MAX_INITIAL_DOCS} or fewer")
+    primary_source_count = count_primary_source_files(root)
+    if 0 < primary_source_count <= SMALL_REPO_SOURCE_FILE_LIMIT and len(docs) > SMALL_REPO_DOC_LIMIT:
+        warnings.append(
+            f"small repo with {primary_source_count} primary source file(s): prefer {DEFAULT_DOC} plus at most 1-2 supporting pages"
+        )
     for index, doc in enumerate(docs):
         doc_errors, doc_warnings = validate_doc(root, doc, require_metadata=index == 0)
         errors.extend(doc_errors)
