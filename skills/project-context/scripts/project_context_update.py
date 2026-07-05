@@ -181,6 +181,15 @@ def validate_repo_relative_path(label: str, value: str) -> str | None:
     return None
 
 
+def symlink_parent(root: Path, rel_path: str) -> str | None:
+    current = root
+    for part in Path(rel_path).parent.parts:
+        current = current / part
+        if current.is_symlink():
+            return current.relative_to(root).as_posix()
+    return None
+
+
 def is_structured_update_metadata(metadata: dict) -> bool:
     return all(isinstance(metadata.get(key), str) and metadata.get(key).strip() for key in ("updatedAt", "command", "model"))
 
@@ -723,10 +732,28 @@ def format_temp_plan(plan: dict) -> str:
 
 
 def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
+    symlink = symlink_parent(root, plan_rel)
+    if symlink:
+        raise ValueError(f"temporary plan parent must not be a symlink: {symlink}")
     plan_path = root / plan_rel
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(format_temp_plan(plan), encoding="utf-8")
     return plan_path
+
+
+def delete_temp_plan(root: Path, plan_rel: str) -> tuple[str, bool]:
+    symlink = symlink_parent(root, plan_rel)
+    if symlink:
+        raise ValueError(f"temporary plan parent must not be a symlink: {symlink}")
+    plan_path = root / plan_rel
+    if not plan_path.exists() and not plan_path.is_symlink():
+        return f"temporary plan absent: {plan_rel}", False
+    if plan_path.is_symlink():
+        raise ValueError(f"temporary plan path must not be a symlink: {plan_rel}")
+    if not plan_path.is_file():
+        raise ValueError(f"temporary plan path must be a regular file: {plan_rel}")
+    plan_path.unlink()
+    return f"temporary plan deleted: {plan_rel}", True
 
 
 def record_metadata(
@@ -787,7 +814,7 @@ def record_metadata(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
-    parser.add_argument("command", choices=["plan", "write-plan", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; snapshot prints the current docs content hash; record writes metadata after docs update.")
+    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; snapshot prints the current docs content hash; record writes metadata after docs update.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Primary doc path. Default: {DEFAULT_DOC}")
     parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
@@ -816,13 +843,14 @@ def main() -> int:
     if args.command in {"plan", "write-plan"}:
         plan = build_plan(root, args.doc, args.metadata)
         if args.command == "write-plan":
-            if (root / args.plan_path).parent.is_symlink():
-                print(f"temporary plan directory must not be a symlink: {(Path(args.plan_path).parent).as_posix()}", file=sys.stderr)
-                return 1
             if (root / args.plan_path).is_symlink():
                 print(f"temporary plan path must not be a symlink: {args.plan_path}", file=sys.stderr)
                 return 1
-            plan_path = write_temp_plan(root, args.plan_path, plan)
+            try:
+                plan_path = write_temp_plan(root, args.plan_path, plan)
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 1
             if args.json:
                 print(json.dumps({"plan_path": args.plan_path, "recommended_action": plan.get("recommended_action")}, indent=2, ensure_ascii=False))
             else:
@@ -833,6 +861,18 @@ def main() -> int:
             print(json.dumps(plan, indent=2, ensure_ascii=False))
         else:
             print(format_plan(plan))
+        return 0
+
+    if args.command == "delete-plan":
+        try:
+            message, deleted = delete_temp_plan(root, args.plan_path)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps({"plan_path": args.plan_path, "deleted": deleted}, indent=2, ensure_ascii=False))
+        else:
+            print(message)
         return 0
 
     if args.command == "snapshot":

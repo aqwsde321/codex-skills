@@ -210,7 +210,7 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 10. 검증하고 metadata를 기록한다.
 
 ```bash
-rm -f docs/project-context/_plan.md
+python3 <skill-dir>/scripts/project_context_update.py delete-plan .
 python3 <skill-dir>/scripts/validate_project_context.py .
 RUN_COMMAND=init  # use update for existing context docs
 python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$RUN_COMMAND" --if-changed --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
@@ -259,6 +259,7 @@ metadata 기록 규칙:
 - `record --if-changed --before-hash <snapshot-hash>`는 OpenWiki의 before/after snapshot 비교와 같은 기준이다. hash가 같으면 metadata를 쓰지 않는다.
 - `record`는 `docs/project-context.md`가 없으면 실패한다.
 - `record`는 `_plan.md`가 남아 있으면 실패한다.
+- `_plan.md` 삭제는 `project_context_update.py delete-plan`을 우선 사용한다. regular file만 삭제하고 symlink, symlink parent, directory는 실패한다.
 - `record`와 `validate`는 context 문서, context 문서 디렉터리, metadata symlink를 허용하지 않는다. source-grounded 문서는 repo 안 regular file이어야 한다.
 - helper script path option은 repo-relative regular path여야 하며 absolute path와 `..` parent traversal은 실패한다.
 - `record`는 `docs/project-context/.metadata.json`에 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`과 현재 commit, 문서 목록, source link map, content hash를 저장한다.
