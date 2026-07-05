@@ -37,6 +37,21 @@ command -v codebase-memory-mcp || /Users/slogup/.local/bin/codebase-memory-mcp -
 curl -fsSL https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/main/install.sh | bash
 ```
 
+공식 유지관리 옵션:
+
+```bash
+codebase-memory-mcp update
+codebase-memory-mcp config list
+codebase-memory-mcp config set auto_index true
+codebase-memory-mcp config set auto_watch true
+```
+
+- `update`: 설치된 공식 binary를 최신 release로 갱신한다.
+- `auto_index`: 새 프로젝트가 MCP session에 연결될 때 자동 인덱싱한다.
+- `auto_watch`: 이미 인덱싱된 프로젝트를 background watcher에 등록해 git/file 변경 감지를 유지한다. 기본값은 `true`다.
+- 공식 install이 Codex SessionStart reminder/hook을 설치했으면 별도 hook을 중복 작성하지 않는다.
+- 팀 단위 대형 repo에서만 `.codebase-memory/graph.db.zst` 공유 artifact를 검토한다. 기본은 각자 로컬 재인덱싱이다.
+
 ## 모드 결정
 
 OpenWiki처럼 먼저 실행 모드를 고른다.
@@ -102,8 +117,9 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 
 - `list_projects` 또는 `index_status`로 현재 repo 인덱스 확인
 - 없으면 `index_repository`
-- 있으면 `detect_changes`
+- 있으면 `detect_changes`로 git diff 기반 영향 범위 확인
 - 변경이 있거나 stale이면 `index_repository`
+- `auto_index`/`auto_watch`가 켜진 환경에서는 자동 갱신이 선행됐을 수 있으므로 tool 결과를 보고 불필요한 full reindex를 피한다.
 
 CLI fallback:
 
