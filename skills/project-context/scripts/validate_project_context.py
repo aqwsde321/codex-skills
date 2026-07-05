@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -19,15 +21,16 @@ EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 
 
-def git_short_head(root: Path) -> str | None:
+def git_output(root: Path, args: list[str]) -> str | None:
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "--no-pager", *args],
             cwd=root,
             check=True,
             stdout=subprocess.PIPE,
@@ -37,6 +40,22 @@ def git_short_head(root: Path) -> str | None:
     except (OSError, subprocess.CalledProcessError):
         return None
     return result.stdout.strip() or None
+
+
+def git_commit_exists(root: Path, ref: str) -> bool:
+    return git_resolve_commit(root, ref) is not None
+
+
+def git_resolve_commit(root: Path, ref: str) -> str | None:
+    return git_output(root, ["rev-parse", "--verify", f"{ref}^{{commit}}"])
+
+
+def git_short_head(root: Path) -> str | None:
+    return git_output(root, ["rev-parse", "--short", "HEAD"])
+
+
+def git_full_head(root: Path) -> str | None:
+    return git_output(root, ["rev-parse", "HEAD"])
 
 
 def is_external_target(target: str) -> bool:
@@ -80,6 +99,50 @@ def discover_docs(root: Path, primary_doc: str) -> list[str]:
             if rel not in docs:
                 docs.append(rel)
     return docs
+
+
+def read_json(path: Path) -> tuple[dict | None, str | None]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+        value = json.loads(raw)
+    except OSError as error:
+        return None, str(error)
+    except json.JSONDecodeError as error:
+        return None, f"invalid JSON: {error.msg}"
+    if not isinstance(value, dict):
+        return None, "metadata root must be an object"
+    return value, None
+
+
+def stable_doc_bytes(path: Path) -> bytes:
+    markdown = path.read_text(encoding="utf-8", errors="replace")
+    if not markdown.startswith("---\n"):
+        return markdown.encode("utf-8")
+    lines = markdown.splitlines(keepends=True)
+    end_index = None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            end_index = index
+            break
+    if end_index is None:
+        return markdown.encode("utf-8")
+    frontmatter = "".join(lines[1:end_index])
+    stable_frontmatter = VOLATILE_FRONTMATTER_RE.sub("", frontmatter)
+    stable = "".join([lines[0], stable_frontmatter, *lines[end_index:]])
+    return stable.encode("utf-8")
+
+
+def docs_content_hash(root: Path, docs: list[str]) -> str:
+    digest = hashlib.sha256()
+    for doc in docs:
+        path = root / doc
+        if not path.exists() or not path.is_file():
+            continue
+        digest.update(doc.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(stable_doc_bytes(path))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def is_context_doc_rel(path: str) -> bool:
@@ -175,6 +238,62 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     return errors, warnings
 
 
+def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    metadata_path = root / DEFAULT_METADATA
+    if not metadata_path.exists():
+        warnings.append(f"missing update metadata: {DEFAULT_METADATA}")
+        return errors, warnings
+    if not metadata_path.is_file():
+        errors.append(f"update metadata is not a file: {DEFAULT_METADATA}")
+        return errors, warnings
+
+    metadata, read_error = read_json(metadata_path)
+    if metadata is None:
+        errors.append(f"invalid update metadata: {DEFAULT_METADATA}: {read_error}")
+        return errors, warnings
+
+    for key in ("updatedAt", "command", "model"):
+        value = metadata.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{DEFAULT_METADATA}: missing OpenWiki metadata field: {key}")
+
+    command = metadata.get("command")
+    if isinstance(command, str) and command.strip() and command not in {"init", "update"}:
+        warnings.append(f"{DEFAULT_METADATA}: unexpected command: {command}")
+
+    commit_ref = metadata.get("source_commit") or metadata.get("gitHead")
+    if not isinstance(commit_ref, str) or not commit_ref.strip():
+        errors.append(f"{DEFAULT_METADATA}: missing source_commit or gitHead")
+    else:
+        commit_ref = commit_ref.strip()
+        resolved_commit = git_resolve_commit(root, commit_ref)
+        if not resolved_commit:
+            errors.append(f"{DEFAULT_METADATA}: source commit does not exist in git: {commit_ref}")
+        else:
+            head = git_full_head(root)
+            if head and resolved_commit != head:
+                warnings.append(f"{DEFAULT_METADATA}: stale source commit: {resolved_commit} != {head}")
+
+    content_hash = metadata.get("content_hash")
+    if not isinstance(content_hash, str) or not content_hash.strip():
+        warnings.append(f"{DEFAULT_METADATA}: missing content_hash")
+    else:
+        current_hash = docs_content_hash(root, docs)
+        if content_hash != current_hash:
+            warnings.append(f"{DEFAULT_METADATA}: content_hash mismatch; run project_context_update.py record after valid docs changes")
+
+    recorded_docs = metadata.get("docs")
+    if isinstance(recorded_docs, list) and all(isinstance(doc, str) for doc in recorded_docs):
+        if sorted(recorded_docs) != sorted(docs):
+            warnings.append(f"{DEFAULT_METADATA}: docs list does not match current context documents")
+    elif recorded_docs is not None:
+        warnings.append(f"{DEFAULT_METADATA}: docs must be a string list")
+
+    return errors, warnings
+
+
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -182,6 +301,9 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
     docs = discover_docs(root, doc_rel)
     docs = [doc for doc in docs if doc != TEMP_PLAN]
+    metadata_errors, metadata_warnings = validate_metadata(root, docs)
+    errors.extend(metadata_errors)
+    warnings.extend(metadata_warnings)
     if len(docs) > MAX_INITIAL_DOCS:
         warnings.append(f"many context docs: {len(docs)}; initial OpenWiki-style runs usually stay at {MAX_INITIAL_DOCS} or fewer")
     for index, doc in enumerate(docs):
@@ -204,10 +326,6 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
             warnings.append(f"{agent_file} does not mention {CONTEXT_DOC_TEXT}")
         elif AGENT_START_MARKER not in agent_text or AGENT_END_MARKER not in agent_text:
             warnings.append(f"{agent_file} project context reference is unmarked")
-
-    metadata_path = root / DEFAULT_METADATA
-    if not metadata_path.exists():
-        warnings.append(f"missing update metadata: {DEFAULT_METADATA}")
 
     if errors:
         return 1, errors, warnings
