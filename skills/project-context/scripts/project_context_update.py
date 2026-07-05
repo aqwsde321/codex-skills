@@ -417,6 +417,14 @@ def map_affected_docs(
     return affected, unmapped
 
 
+def soft_diff_budget_warning(source_change_paths: list[str], affected_docs: dict[str, list[str]]) -> str | None:
+    if 0 < len(source_change_paths) < 5 and len(affected_docs) > 2:
+        return "fewer than 5 source files changed; update at most 1-2 docs unless current source proves broader impact"
+    if len(affected_docs) > 3:
+        return "more than 3 docs are affected; think deeply before broad edits and keep only source-tied changes"
+    return None
+
+
 def stable_doc_bytes(path: Path) -> bytes:
     markdown = path.read_text(encoding="utf-8", errors="replace")
     if not markdown.startswith("---\n"):
@@ -529,6 +537,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         root,
         previous_commit,
     )
+    budget_warning = soft_diff_budget_warning(source_change_paths, affected_docs)
     if not (root / doc_rel).exists():
         recommended_action = "create-docs"
     elif affected_docs:
@@ -569,6 +578,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "generated_doc_changes": generated_doc_changes,
         "affected_docs": affected_docs,
         "unmapped_changes": unmapped_changes,
+        "soft_diff_budget_warning": budget_warning,
         "recommended_action": recommended_action,
     }
 
@@ -611,6 +621,7 @@ def format_plan(plan: dict) -> str:
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         "",
         "## Last Update Metadata",
         *format_json_block(plan.get("last_update_metadata")),
@@ -684,6 +695,7 @@ def format_temp_plan(plan: dict) -> str:
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         "",
         "## Last Update Metadata",
