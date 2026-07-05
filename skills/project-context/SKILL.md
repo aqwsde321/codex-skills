@@ -43,28 +43,46 @@ npm install -g openwiki
 
 ## Repo 적용 절차
 
-1. repo root에서 현재 문서 상태를 본다.
+1. repo root인지 확인한다.
+
+```bash
+git rev-parse --show-toplevel
+```
+
+2. OpenWiki는 디렉터리 존재 여부로 분기한다. `openwiki/`가 없으면 초기화하고, 있으면 갱신한다.
+
+```bash
+if [ -d openwiki ]; then
+  openwiki --update -p "Refresh the OpenWiki documentation for the current repository changes. Keep it concise and agent-oriented."
+else
+  openwiki --init -p "Please generate concise agent documentation for this repository."
+fi
+```
+
+3. `openwiki/`가 이미 있으면 재초기화하지 않는다. 기존 문서가 깨졌거나 사용자가 재생성을 명시했을 때만 재초기화를 논의한다.
+
+4. OpenWiki가 AGENTS 지시 파일을 만들었는지 확인한다. 없으면 OpenWiki 출력과 repo 상태를 보고한다.
 
 ```bash
 ls openwiki AGENTS.md CLAUDE.md 2>/dev/null
 ```
 
-2. OpenWiki가 없으면 초기화한다.
+5. Codex MCP에서 `codebase-memory-mcp` 도구를 확인하고 repo를 인덱싱/갱신한다. 도구 이름은 공식 MCP가 제공하는 이름을 우선한다. 노출된 schema가 다를 수 있으므로 `tools/list`로 확인한 뒤 호출한다.
+
+MCP tool이 보이면 이 순서로 사용한다.
+
+- `list_projects` 또는 `index_status`로 현재 repo가 인덱싱됐는지 확인
+- 없으면 `index_repository`
+- 있으면 `detect_changes`
+- 변경이 있거나 stale이면 `index_repository`로 갱신
+
+CLI가 꼭 필요할 때만 fallback으로 쓴다.
 
 ```bash
-openwiki --init
-openwiki -p "Please generate concise agent documentation for this repository."
+/Users/slogup/.local/bin/codebase-memory-mcp cli list_projects '{}'
 ```
 
-3. OpenWiki가 이미 있으면 갱신한다.
-
-```bash
-openwiki --update
-```
-
-4. Codex MCP에서 codebase-memory-mcp 도구를 확인하고 repo를 인덱싱한다. 도구 이름은 공식 MCP가 제공하는 이름을 우선한다. 노출된 schema가 다를 수 있으므로 `tools/list`로 확인한 뒤 호출한다.
-
-5. 작업 전 Codex 내부 절차:
+6. 작업 전 Codex 내부 절차:
 
 - `openwiki/`가 있으면 먼저 읽어 큰 그림을 잡는다.
 - 코드 위치, 호출 관계, route, 영향 범위는 `codebase-memory-mcp` MCP 도구로 확인한다.
