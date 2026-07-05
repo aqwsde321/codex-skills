@@ -219,6 +219,7 @@ metadata 기록 규칙:
 - no-op update면 metadata만 새로 쓰지 않는다. 이전 문서가 어떤 source 기준인지 보존한다.
 - 새 문서 생성 뒤에는 `--run-command init`, 기존 문서 갱신 뒤에는 `--run-command update`를 쓴다.
 - `record --if-changed`는 실제 문서 내용 hash가 바뀐 경우에만 metadata를 쓴다.
+- `record`는 `docs/project-context.md`가 없으면 실패한다.
 - `record`는 `_plan.md`가 남아 있으면 실패한다.
 - `record`는 `docs/project-context/.metadata.json`에 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`과 현재 commit, 문서 목록, source link map, content hash를 저장한다.
 - content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter를 제외한 실제 문서 내용 기준이다.

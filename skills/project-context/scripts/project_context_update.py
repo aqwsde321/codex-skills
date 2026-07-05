@@ -665,6 +665,9 @@ def main() -> int:
     if (root / args.plan_path).exists():
         print(f"temporary plan must be deleted before recording metadata: {args.plan_path}", file=sys.stderr)
         return 1
+    if not (root / args.doc).is_file():
+        print(f"primary context document must exist before recording metadata: {args.doc}", file=sys.stderr)
+        return 1
 
     metadata = record_metadata(root, args.doc, args.metadata, args.run_command, args.model, args.if_changed)
     if args.json:
