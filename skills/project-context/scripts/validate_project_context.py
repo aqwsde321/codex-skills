@@ -52,10 +52,6 @@ def git_resolve_commit(root: Path, ref: str) -> str | None:
     return git_output(root, ["rev-parse", "--verify", f"{ref}^{{commit}}"])
 
 
-def git_short_head(root: Path) -> str | None:
-    return git_output(root, ["rev-parse", "--short", "HEAD"])
-
-
 def git_full_head(root: Path) -> str | None:
     return git_output(root, ["rev-parse", "HEAD"])
 
@@ -189,16 +185,19 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     source_commit_match = SOURCE_COMMIT_RE.search(markdown)
     if require_metadata and not source_commit_match:
         errors.append(f"{doc_rel}: missing metadata: source_commit")
+    if source_commit_match:
+        source_commit = source_commit_match.group(1)
+        resolved_commit = git_resolve_commit(root, source_commit)
+        if not resolved_commit:
+            errors.append(f"{doc_rel}: source_commit does not exist in git: {source_commit}")
+        else:
+            head = git_full_head(root)
+            if head and resolved_commit != head:
+                warnings.append(f"{doc_rel}: stale source_commit: {resolved_commit} != {head}")
 
     evidence_section = extract_evidence_section(markdown)
     if not evidence_section:
         errors.append(f"{doc_rel}: missing section: ## 근거")
-
-    head = git_short_head(root)
-    if source_commit_match and head:
-        source_commit = source_commit_match.group(1)
-        if source_commit != head:
-            warnings.append(f"{doc_rel}: stale source_commit: {source_commit} != {head}")
 
     links = list(iter_relative_links(markdown))
     evidence_links = set(iter_relative_links(evidence_section))
