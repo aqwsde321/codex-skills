@@ -294,6 +294,32 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
     return errors, warnings
 
 
+def validate_index_links(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    primary_path = root / doc_rel
+    if not primary_path.exists() or not primary_path.is_file():
+        return errors, warnings
+    subdocs = [doc for doc in docs if doc != doc_rel]
+    if not subdocs:
+        return errors, warnings
+
+    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
+    linked_targets = set()
+    for link in iter_relative_links(markdown):
+        target_path = (primary_path.parent / link).resolve()
+        try:
+            linked_targets.add(target_path.relative_to(root).as_posix())
+        except ValueError:
+            continue
+
+    for subdoc in subdocs:
+        if subdoc not in linked_targets:
+            errors.append(f"{doc_rel}: missing index link to context page: {subdoc}")
+
+    return errors, warnings
+
+
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -310,6 +336,9 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         doc_errors, doc_warnings = validate_doc(root, doc, require_metadata=index == 0)
         errors.extend(doc_errors)
         warnings.extend(doc_warnings)
+    index_errors, index_warnings = validate_index_links(root, doc_rel, docs)
+    errors.extend(index_errors)
+    warnings.extend(index_warnings)
 
     agent_files = ("AGENTS.md", "CLAUDE.md")
     existing_agent_files = [agent_file for agent_file in agent_files if (root / agent_file).exists()]

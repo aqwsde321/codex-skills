@@ -205,6 +205,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - Markdown link target에 host absolute path가 있으면 실패
 - 본문에 commit hash 목록이 많으면 경고
 - 모든 context 문서에 `## 근거` 섹션 존재
+- multi-page index가 모든 하위 context 문서로 링크
 - multi-page 하위 문서가 index 문서로 링크
 - `docs/project-context/_plan.md`가 남아 있으면 실패
 - 얇은 하위 문서나 8개 초과 문서는 경고
