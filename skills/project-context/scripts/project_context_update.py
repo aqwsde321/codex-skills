@@ -18,10 +18,11 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "12"
+GENERATOR_VERSION = "13"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 HIGH_SIGNAL_PATHS = {
@@ -199,6 +200,11 @@ def validate_repo_path(root: Path, label: str, value: str) -> str | None:
     if symlink:
         return f"{label} parent must not be a symlink: {symlink}"
     return None
+
+
+def is_valid_model_id(value: str) -> bool:
+    model_id = value.strip()
+    return 0 < len(model_id) <= 120 and "://" not in model_id and MODEL_ID_RE.match(model_id) is not None
 
 
 def is_structured_update_metadata(metadata: dict) -> bool:
@@ -952,6 +958,9 @@ def main() -> int:
         if path_error:
             print(path_error, file=sys.stderr)
             return 2
+    if args.command == "record" and not is_valid_model_id(args.model):
+        print("--model must be a non-empty OpenWiki-compatible model id without URLs", file=sys.stderr)
+        return 2
 
     if args.command in {"plan", "write-plan"}:
         plan = build_plan(root, args.doc, args.metadata)

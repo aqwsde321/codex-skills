@@ -23,6 +23,7 @@ MIN_SINGLE_FILE_SECTION_CHARS = 1500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
@@ -250,6 +251,11 @@ def validate_repo_path(root: Path, label: str, value: str) -> str | None:
     if symlink:
         return f"{label} parent must not be a symlink: {symlink}"
     return None
+
+
+def is_valid_model_id(value: str) -> bool:
+    model_id = value.strip()
+    return 0 < len(model_id) <= 120 and "://" not in model_id and MODEL_ID_RE.match(model_id) is not None
 
 
 def stable_doc_bytes(path: Path) -> bytes:
@@ -508,6 +514,9 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
     updated_at = metadata.get("updatedAt")
     if isinstance(updated_at, str) and updated_at.strip() and not UPDATED_AT_RE.match(updated_at):
         warnings.append(f"{DEFAULT_METADATA}: updatedAt should be an ISO-8601 timestamp")
+    model = metadata.get("model")
+    if isinstance(model, str) and model.strip() and not is_valid_model_id(model):
+        warnings.append(f"{DEFAULT_METADATA}: model should be an OpenWiki-compatible model id")
 
     command = metadata.get("command")
     if isinstance(command, str) and command.strip() and command not in {"init", "update"}:
