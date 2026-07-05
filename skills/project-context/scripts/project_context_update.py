@@ -537,7 +537,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
-    git_status = run_git(root, ["status", "--short", "--untracked-files=all"])
+    git_status = run_git(root, ["status", "--short"])
     status_changes = parse_status_short(git_status)
     last_update_metadata, last_update_metadata_source = load_last_update_metadata(root, metadata_rel)
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
@@ -606,7 +606,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "generator_version": GENERATOR_VERSION,
         "current_head": full_head,
         "current_head_short": short_head,
-        "git_status_label": "git status --short --untracked-files=all",
+        "git_status_label": "git status --short",
         "git_status": git_status,
         "status_changes": status_changes,
         "git_head_label": "git rev-parse HEAD",
@@ -940,7 +940,7 @@ def main() -> int:
     parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
     parser.add_argument("--plan-path", default=DEFAULT_TEMP_PLAN, help=f"Temporary draft plan path. Default: {DEFAULT_TEMP_PLAN}")
     parser.add_argument("--run-command", choices=["init", "update"], default="update", help="OpenWiki-compatible run command stored in metadata.")
-    parser.add_argument("--model", default="codex", help="OpenWiki-compatible model label stored in metadata.")
+    parser.add_argument("--model", "--model-id", "--modelId", dest="model", default="codex", help="OpenWiki-compatible model label stored in metadata.")
     parser.add_argument("--if-changed", action="store_true", help="Do not rewrite metadata when documentation content hash is unchanged.")
     parser.add_argument("--before-hash", help="Docs content hash captured before the run. With --if-changed, metadata is skipped when it still matches.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")

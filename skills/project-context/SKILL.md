@@ -105,7 +105,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
 - `generated_context_doc_changes`: metadata/temp plan이 아닌 context 문서 변경이다. source 변경 없이 이것만 있으면 검증 후 record 또는 되돌림 여부를 판단한다.
 - `soft_diff_budget_warning`/`soft_diff_budget_warnings`: OpenWiki식 update budget 경고다. source 변경이 작거나 primary/index 문서가 low-signal 변경만으로 영향 받으면 broad rewrite를 하지 않는다.
-- `git status --short --untracked-files=all`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
+- `git status --short`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
 - helper script의 `--doc`, `--metadata`, `--plan-path` 값은 repo-relative path만 쓴다. absolute path, `..` parent traversal, symlink parent는 거부된다.
@@ -259,7 +259,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - `docs/project-context/.metadata.json`은 성공 갱신 후 기록
 - metadata의 OpenWiki 호환 `updatedAt`, `command`, `model` 구조가 유효
 - metadata의 `updatedAt`/`updated_at`이 없거나 OpenWiki `new Date().toISOString()` 형식의 UTC milliseconds timestamp가 아니거나 서로 다르면 경고
-- metadata의 `model`이 OpenWiki 호환 model id 형식이 아니거나 주변 공백이 있으면 경고하고, `record --model`은 URL/빈 값/120자 초과 값을 거부하며 저장 시 trim
+- metadata의 `model`이 OpenWiki 호환 model id 형식이 아니거나 주변 공백이 있으면 경고하고, `record --model`/`--model-id`/`--modelId`는 URL/빈 값/120자 초과 값을 거부하며 저장 시 trim
 - metadata의 `gitHead`가 있으면 현재 git에서 조회 가능한 commit이고, 없으면 update가 `updatedAt` 기준으로 fallback한다고 경고
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit
 - metadata의 `content_hash`가 volatile frontmatter, metadata, `_plan.md`를 제외한 현재 context regular file/directory snapshot과 일치
