@@ -198,7 +198,8 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - `docs/project-context.md` 존재
 - `docs/project-context/.metadata.json`은 성공 갱신 후 기록
 - metadata의 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model` 구조가 유효
-- metadata의 `source_commit` 또는 `gitHead`가 현재 git에서 조회 가능한 commit
+- metadata의 `gitHead`가 현재 git에서 조회 가능한 commit
+- metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit
 - metadata의 `content_hash`가 volatile frontmatter를 제외한 현재 context 문서 내용과 일치
 - 문서 frontmatter의 `source_commit`이 현재 git에서 조회 가능한 commit
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재

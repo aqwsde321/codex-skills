@@ -257,7 +257,7 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
         errors.append(f"invalid update metadata: {DEFAULT_METADATA}: {read_error}")
         return errors, warnings
 
-    for key in ("updatedAt", "command", "model"):
+    for key in ("updatedAt", "command", "model", "gitHead"):
         value = metadata.get(key)
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{DEFAULT_METADATA}: missing OpenWiki metadata field: {key}")
@@ -266,18 +266,28 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
     if isinstance(command, str) and command.strip() and command not in {"init", "update"}:
         warnings.append(f"{DEFAULT_METADATA}: unexpected command: {command}")
 
-    commit_ref = metadata.get("source_commit") or metadata.get("gitHead")
-    if not isinstance(commit_ref, str) or not commit_ref.strip():
-        errors.append(f"{DEFAULT_METADATA}: missing source_commit or gitHead")
-    else:
-        commit_ref = commit_ref.strip()
-        resolved_commit = git_resolve_commit(root, commit_ref)
-        if not resolved_commit:
-            errors.append(f"{DEFAULT_METADATA}: source commit does not exist in git: {commit_ref}")
+    resolved_git_head = None
+    git_head_ref = metadata.get("gitHead")
+    if isinstance(git_head_ref, str) and git_head_ref.strip():
+        resolved_git_head = git_resolve_commit(root, git_head_ref.strip())
+        if not resolved_git_head:
+            errors.append(f"{DEFAULT_METADATA}: gitHead does not exist in git: {git_head_ref.strip()}")
+
+    source_commit_ref = metadata.get("source_commit")
+    if source_commit_ref is not None:
+        if not isinstance(source_commit_ref, str) or not source_commit_ref.strip():
+            errors.append(f"{DEFAULT_METADATA}: source_commit must be a non-empty string when present")
         else:
-            head = git_full_head(root)
-            if head and resolved_commit != head:
-                warnings.append(f"{DEFAULT_METADATA}: stale source commit: {resolved_commit} != {head}")
+            resolved_source_commit = git_resolve_commit(root, source_commit_ref.strip())
+            if not resolved_source_commit:
+                errors.append(f"{DEFAULT_METADATA}: source_commit does not exist in git: {source_commit_ref.strip()}")
+            elif resolved_git_head and resolved_source_commit != resolved_git_head:
+                errors.append(f"{DEFAULT_METADATA}: source_commit does not match gitHead")
+
+    if resolved_git_head:
+        head = git_full_head(root)
+        if head and resolved_git_head != head:
+            warnings.append(f"{DEFAULT_METADATA}: stale gitHead: {resolved_git_head} != {head}")
 
     content_hash = metadata.get("content_hash")
     if not isinstance(content_hash, str) or not content_hash.strip():
