@@ -61,6 +61,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
+- `git status --short`, `git rev-parse HEAD`: 현재 작업트리 dirty 상태와 기준 source head를 확인한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 
 3. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.

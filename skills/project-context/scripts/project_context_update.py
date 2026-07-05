@@ -326,6 +326,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
+    git_status = run_git(root, ["status", "--short"])
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
@@ -367,6 +368,9 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "generator_version": GENERATOR_VERSION,
         "current_head": full_head,
         "current_head_short": short_head,
+        "git_status_label": "git status --short",
+        "git_status": git_status,
+        "git_head_label": "git rev-parse HEAD",
         "previous_commit": previous_commit,
         "previous_updated_at": previous_updated_at,
         "previous_commit_source": previous_source,
@@ -419,6 +423,12 @@ def format_plan(plan: dict) -> str:
         f"- previous_commit_source: {plan.get('previous_commit_source')}",
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        "",
+        f"## {plan.get('git_status_label')}",
+        *format_block(plan.get("git_status")),
+        "",
+        f"## {plan.get('git_head_label')}",
+        *format_block(plan.get("current_head")),
         "",
         f"## {plan.get('commit_evidence_label')}",
         *format_block(plan.get("commit_evidence")),
