@@ -85,6 +85,18 @@ def git_head(root: Path) -> tuple[str | None, str | None]:
     return full, short
 
 
+def git_commit_exists(root: Path, ref: str) -> bool:
+    result = subprocess.run(
+        ["git", "--no-pager", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return result.returncode == 0
+
+
 def clean_target(target: str) -> str:
     target = target.strip()
     target = target.split("#", 1)[0]
@@ -148,14 +160,14 @@ def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[
     if metadata:
         for key in ("source_commit", "gitHead", "git_head"):
             value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
+            if isinstance(value, str) and value.strip() and git_commit_exists(root, value.strip()):
                 return value.strip(), None, metadata_rel
         for key in ("updated_at", "updatedAt"):
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
                 return None, value.strip(), metadata_rel
     source_commit = read_source_commit_from_doc(root, doc_rel)
-    if source_commit:
+    if source_commit and git_commit_exists(root, source_commit):
         return source_commit, None, doc_rel
     return None, None, "none"
 
@@ -354,13 +366,15 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
+    has_previous_context = previous_commit is not None or previous_updated_at is not None
     commit_label, commit_output, since_label, since_changes, dirty_label, dirty_changes = collect_git_changes(
         root,
         previous_commit,
         previous_updated_at,
     )
     changed_paths = []
-    for row in [*since_changes, *dirty_changes, *status_changes]:
+    since_rows_for_impact = since_changes if has_previous_context else []
+    for row in [*since_rows_for_impact, *dirty_changes, *status_changes]:
         path = row.get("path")
         if isinstance(path, str) and path not in changed_paths:
             changed_paths.append(path)
@@ -385,6 +399,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         recommended_action = "update-affected-docs"
     elif source_change_paths:
         recommended_action = "review-unmapped-changes"
+    elif not has_previous_context and since_changes:
+        recommended_action = "review-recent-history"
     else:
         recommended_action = "no-op"
     return {
@@ -398,6 +414,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "git_head_label": "git rev-parse HEAD",
         "previous_commit": previous_commit,
         "previous_updated_at": previous_updated_at,
+        "has_previous_context": has_previous_context,
         "previous_commit_source": previous_source,
         "metadata_path": metadata_rel,
         "primary_doc": doc_rel,

@@ -58,6 +58,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: create-docs`: context 문서가 없거나 최소 요건이 없다. 새로 만든다.
 - `recommended_action: update-affected-docs`: 바뀐 source link와 연결된 문서만 갱신한다.
 - `recommended_action: review-unmapped-changes`: 변경 파일이 기존 문서 근거와 직접 연결되지 않았다. 새 근거/새 섹션/무시 중 하나를 판단한다.
+- `recommended_action: review-recent-history`: 이전 성공 metadata가 없다. 최근 commit evidence를 읽고 문서 기준점을 잡거나 `record`로 metadata를 생성할지 판단한다.
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
