@@ -662,6 +662,10 @@ def main() -> int:
             print(format_plan(plan))
         return 0
 
+    if (root / args.plan_path).exists():
+        print(f"temporary plan must be deleted before recording metadata: {args.plan_path}", file=sys.stderr)
+        return 1
+
     metadata = record_metadata(root, args.doc, args.metadata, args.run_command, args.model, args.if_changed)
     if args.json:
         print(json.dumps(metadata, indent=2, ensure_ascii=False))
