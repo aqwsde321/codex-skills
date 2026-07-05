@@ -231,6 +231,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - private key, AWS access key, token/password/API key 값처럼 보이는 assignment가 있으면 실패. env var 이름이나 placeholder만 남긴다.
 - 본문에 commit hash 목록이 많으면 경고
 - 모든 context 문서에 `## 근거` 섹션 존재
+- primary doc에 repository overview, change guidance, testing guidance 역할의 섹션이 없으면 경고
 - multi-page index가 모든 하위 context 문서로 링크
 - multi-page 하위 문서가 index 문서로 링크
 - `docs/project-context/_plan.md`가 남아 있으면 실패

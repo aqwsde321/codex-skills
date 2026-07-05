@@ -34,6 +34,20 @@ SECRET_ASSIGNMENT_RE = re.compile(
     r"(?!<|\$|\{|\[|your-|example|placeholder|redacted|xxx|todo|none|null|false|true)"
     r"[A-Za-z0-9_./+=:@-]{12,}"
 )
+PRIMARY_DOC_SECTION_PATTERNS = {
+    "repository overview": re.compile(
+        r"^##\s+(?:프로젝트\s*(?:요약|개요)|Repository Overview|Overview)\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
+    "change guidance": re.compile(
+        r"^##\s+(?:작업\s*(?:전\s*)?(?:확인|주의|가이드)(?:\s*지점)?|Change Guidance|Working Notes|Agent Notes)\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
+    "testing guidance": re.compile(
+        r"^##\s+(?:검증\s*방법|테스트|Testing|Validation|Checks?)\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
+}
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 REPOSITORY_OVERVIEW_TEXT = "repository overview"
 ARCHITECTURE_NOTES_TEXT = "architecture notes"
@@ -369,6 +383,10 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
 
     if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and doc_rel != TEMP_PLAN and len(body) < MIN_SUBPAGE_BODY_CHARS:
         warnings.append(f"{doc_rel}: thin page; merge into {DEFAULT_DOC} or expand with source-grounded guidance")
+    if doc_rel == DEFAULT_DOC:
+        for section_name, pattern in PRIMARY_DOC_SECTION_PATTERNS.items():
+            if not pattern.search(markdown):
+                warnings.append(f"{doc_rel}: primary doc should include {section_name} section")
 
     return errors, warnings
 
