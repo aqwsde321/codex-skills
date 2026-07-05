@@ -51,6 +51,7 @@ codebase-memory-mcp config set auto_watch true
 - `auto_watch`: 이미 인덱싱된 프로젝트를 background watcher에 등록해 git/file 변경 감지를 유지한다. 기본값은 `true`다.
 - 공식 install이 Codex SessionStart reminder/hook을 설치했으면 별도 hook을 중복 작성하지 않는다.
 - 팀 단위 대형 repo에서만 `.codebase-memory/graph.db.zst` 공유 artifact를 검토한다. 기본은 각자 로컬 재인덱싱이다.
+- OpenWiki 공식 repo에는 scheduled GitHub Action으로 `openwiki --update --print`를 실행해 PR을 여는 예시가 있다. project-context는 Codex-native라 기본 CI workflow를 만들지 않는다. 사용자가 명시적으로 원하고 Codex 실행 인증/runner 정책이 확인된 경우에만 별도 workflow를 설계한다.
 
 ## 모드 결정
 
@@ -257,7 +258,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - `docs/project-context.md` 존재
 - `docs/project-context/.metadata.json`은 성공 갱신 후 기록
 - metadata의 OpenWiki 호환 `updatedAt`, `command`, `model` 구조가 유효
-- metadata의 `updatedAt`이 ISO-8601 timestamp가 아니면 경고
+- metadata의 `updatedAt`/`updated_at`이 OpenWiki `new Date().toISOString()` 형식의 UTC milliseconds timestamp가 아니거나 서로 다르면 경고
 - metadata의 `model`이 OpenWiki 호환 model id 형식이 아니거나 주변 공백이 있으면 경고하고, `record --model`은 URL/빈 값/120자 초과 값을 거부하며 저장 시 trim
 - metadata의 `gitHead`가 있으면 현재 git에서 조회 가능한 commit이고, 없으면 update가 `updatedAt` 기준으로 fallback한다고 경고
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit

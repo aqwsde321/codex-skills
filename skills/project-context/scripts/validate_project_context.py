@@ -23,6 +23,7 @@ MIN_SINGLE_FILE_SECTION_CHARS = 1500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
+OPENWIKI_UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
@@ -512,8 +513,14 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{DEFAULT_METADATA}: missing OpenWiki metadata field: {key}")
     updated_at = metadata.get("updatedAt")
-    if isinstance(updated_at, str) and updated_at.strip() and not UPDATED_AT_RE.match(updated_at):
-        warnings.append(f"{DEFAULT_METADATA}: updatedAt should be an ISO-8601 timestamp")
+    if isinstance(updated_at, str) and updated_at.strip() and not OPENWIKI_UPDATED_AT_RE.match(updated_at):
+        warnings.append(f"{DEFAULT_METADATA}: updatedAt should match OpenWiki new Date().toISOString() format")
+    local_updated_at = metadata.get("updated_at")
+    if isinstance(local_updated_at, str) and local_updated_at.strip():
+        if not OPENWIKI_UPDATED_AT_RE.match(local_updated_at):
+            warnings.append(f"{DEFAULT_METADATA}: updated_at should match OpenWiki new Date().toISOString() format")
+        if isinstance(updated_at, str) and updated_at.strip() and local_updated_at != updated_at:
+            warnings.append(f"{DEFAULT_METADATA}: updated_at should match updatedAt")
     model = metadata.get("model")
     if isinstance(model, str) and model.strip() and not is_valid_model_id(model):
         warnings.append(f"{DEFAULT_METADATA}: model should be an OpenWiki-compatible model id")
