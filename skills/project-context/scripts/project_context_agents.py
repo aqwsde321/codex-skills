@@ -8,6 +8,10 @@ from pathlib import Path
 START_MARKER = "<!-- project-context:start -->"
 END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
+MARKED_SECTION_RE = re.compile(
+    rf"{re.escape(START_MARKER)}.*?{re.escape(END_MARKER)}",
+    re.DOTALL,
+)
 SECTION = f"""{START_MARKER}
 ## Project Context
 
@@ -23,22 +27,26 @@ When working in this repository, read the project context first, then use `codeb
 
 
 def replace_marked_section(text: str) -> tuple[str, bool]:
-    start = text.find(START_MARKER)
-    end = text.find(END_MARKER)
-    if start != -1 and end != -1 and start < end:
-        end += len(END_MARKER)
+    marked_sections = list(MARKED_SECTION_RE.finditer(text))
+    if marked_sections:
         parts = []
-        prefix = text[:start].rstrip()
-        suffix = text[end:].lstrip()
-        if prefix:
-            parts.append(prefix)
-        parts.append(SECTION.rstrip())
+        cursor = 0
+        inserted = False
+        for marked_section in marked_sections:
+            prefix = text[cursor : marked_section.start()].rstrip()
+            if prefix:
+                parts.append(prefix)
+            if not inserted:
+                parts.append(SECTION.rstrip())
+                inserted = True
+            cursor = marked_section.end()
+        suffix = text[cursor:].lstrip()
         if suffix:
             parts.append(suffix)
         next_text = "\n\n".join(parts).rstrip() + "\n"
         return next_text, next_text != text
     unmarked_section = PROJECT_CONTEXT_SECTION_RE.search(text)
-    if unmarked_section and "docs/project-context.md" in unmarked_section.group(0):
+    if unmarked_section:
         next_text = (
             text[: unmarked_section.start()].rstrip()
             + "\n\n"
