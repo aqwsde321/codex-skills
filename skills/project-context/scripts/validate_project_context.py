@@ -581,6 +581,20 @@ def validate_index_links(root: Path, doc_rel: str, docs: list[str]) -> tuple[lis
     return errors, warnings
 
 
+def validate_primary_mode(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
+    primary_path = root / doc_rel
+    if primary_path.is_symlink() or not primary_path.exists() or not primary_path.is_file():
+        return [], []
+    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
+    mode = parse_frontmatter(markdown).get("mode")
+    if mode not in {"single-page", "multi-page"}:
+        return [], []
+    expected_mode = "multi-page" if any(doc != doc_rel for doc in docs) else "single-page"
+    if mode != expected_mode:
+        return [], [f"{doc_rel}: metadata mode should be {expected_mode} for {len(docs)} context document(s)"]
+    return [], []
+
+
 def doc_body_length(root: Path, doc_rel: str) -> int:
     path = root / doc_rel
     if not path.exists() or not path.is_file():
@@ -662,6 +676,9 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     index_errors, index_warnings = validate_index_links(root, doc_rel, docs)
     errors.extend(index_errors)
     warnings.extend(index_warnings)
+    mode_errors, mode_warnings = validate_primary_mode(root, doc_rel, docs)
+    errors.extend(mode_errors)
+    warnings.extend(mode_warnings)
     section_errors, section_warnings = validate_section_directories(root, docs)
     errors.extend(section_errors)
     warnings.extend(section_warnings)

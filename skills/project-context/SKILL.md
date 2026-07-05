@@ -72,6 +72,7 @@ OpenWiki처럼 먼저 실행 모드를 고른다.
 - `validate_project_context.py .`: context 문서, metadata, source link, agent instruction을 검증한다.
 - `project_context_update.py record . --run-command init|update --if-changed --before-hash <hash>`: 실제 문서 변경이 있을 때만 metadata를 기록한다.
 - `project_context_agents.py .`: top-level `AGENTS.md`/`CLAUDE.md`에 project-context 안내 섹션을 보장한다.
+- `plan --json`/`write-plan --json`: 자동화용으로 `last_update_metadata`, `git_summary`, `affected_docs`, `unmapped_changes`를 포함한 machine-readable 갱신 근거를 출력한다.
 - `python3 <script> --help`: 현재 옵션과 인자를 확인한다.
 
 ## 생성/갱신 절차
@@ -265,6 +266,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit
 - metadata의 `content_hash`가 metadata, `_plan.md`를 제외한 현재 context regular file/directory raw file snapshot과 일치
 - primary doc frontmatter에 `generated_by: project-context`, `updated_at`, `mode: single-page|multi-page`, `source_commit`이 존재
+- primary doc frontmatter의 `mode`가 실제 context 문서 수와 일치. 하위 문서가 있으면 `multi-page`, 없으면 `single-page`
 - 문서 frontmatter의 `source_commit`이 현재 git에서 조회 가능한 commit
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
