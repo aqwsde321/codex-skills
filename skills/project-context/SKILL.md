@@ -104,7 +104,7 @@ CLI fallback:
 
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
 - app/graph entrypoint, route/controller 파일, database/schema/migration 파일, tests/evals, skill/playbook, operational script를 inventory 후보로 본다.
-- `.env`, private key, token, credential 파일은 읽지 않는다. 필요하면 설정 파일 존재와 non-secret setup 위치만 문서화한다.
+- `.env`, private key, token, credential 파일은 읽지 않는다. `.env.example`과 sample config는 placeholder만 있고 live secret이 없을 때만 읽는다. secret-bearing 파일이 관련 있으면 설정 존재와 non-secret setup 위치만 문서화한다.
 - 기존 `docs/project-context.md`, `docs/project-context/`, `openwiki/quickstart.md`, `openwiki/`, README/runbook/docs tree
 - 기존 README/docs/runbook은 primary source로 취급한다. 유효하면 요약하고 링크하며, 통째로 복제하지 않는다.
 - `project_context_update.py plan`의 affected/unmapped 변경
