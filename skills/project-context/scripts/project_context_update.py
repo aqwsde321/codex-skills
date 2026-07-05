@@ -878,7 +878,16 @@ def main() -> int:
                 print(str(error), file=sys.stderr)
                 return 1
             if args.json:
-                print(json.dumps({"plan_path": args.plan_path, "recommended_action": plan.get("recommended_action")}, indent=2, ensure_ascii=False))
+                print(json.dumps(
+                    {
+                        "plan_path": args.plan_path,
+                        "recommended_action": plan.get("recommended_action"),
+                        "soft_diff_budget_warning": plan.get("soft_diff_budget_warning"),
+                        "last_update_metadata_source": plan.get("last_update_metadata_source"),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ))
             else:
                 print(f"draft plan written: {plan_path.relative_to(root).as_posix()}")
                 print(f"recommended_action: {plan.get('recommended_action')}")
