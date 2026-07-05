@@ -94,6 +94,8 @@ def discover_docs(root: Path, primary_doc: str) -> list[str]:
     doc_dir = root / DEFAULT_DOC_DIR
     if doc_dir.exists() and doc_dir.is_dir():
         for path in sorted(doc_dir.rglob("*.md")):
+            if path.is_symlink() or not path.is_file():
+                continue
             rel = path.relative_to(root).as_posix()
             if rel not in docs:
                 docs.append(rel)
@@ -133,6 +135,8 @@ def stable_doc_bytes(path: Path) -> bytes:
 
 def snapshot_file_bytes(path: Path) -> bytes | None:
     try:
+        if path.is_symlink() or not path.is_file():
+            return None
         if path.suffix == ".md":
             return stable_doc_bytes(path)
         return path.read_bytes()
@@ -166,7 +170,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
         paths = sorted(doc_dir.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
         for path in paths:
             rel = path.relative_to(root).as_posix()
-            if rel in SNAPSHOT_EXCLUDED_PATHS:
+            if rel in SNAPSHOT_EXCLUDED_PATHS or path.is_symlink():
                 continue
             if path.is_dir():
                 digest.update(f"dir:{rel}".encode("utf-8"))
