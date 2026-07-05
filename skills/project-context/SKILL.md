@@ -74,7 +74,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
-- `soft_diff_budget_warning`: OpenWiki식 update budget 경고다. source 변경이 작으면 broad rewrite를 하지 말고 1-2개 문서 수정으로 제한한다.
+- `soft_diff_budget_warning`/`soft_diff_budget_warnings`: OpenWiki식 update budget 경고다. source 변경이 작거나 primary/index 문서가 low-signal 변경만으로 영향 받으면 broad rewrite를 하지 않는다.
 - `git status --short --untracked-files=all`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.

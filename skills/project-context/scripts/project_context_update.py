@@ -417,12 +417,20 @@ def map_affected_docs(
     return affected, unmapped
 
 
-def soft_diff_budget_warning(source_change_paths: list[str], affected_docs: dict[str, list[str]]) -> str | None:
+def soft_diff_budget_warnings(
+    source_change_paths: list[str],
+    affected_docs: dict[str, list[str]],
+    primary_doc: str,
+) -> list[str]:
+    warnings = []
     if 0 < len(source_change_paths) < 5 and len(affected_docs) > 2:
-        return "fewer than 5 source files changed; update at most 1-2 docs unless current source proves broader impact"
+        warnings.append("fewer than 5 source files changed; update at most 1-2 docs unless current source proves broader impact")
     if len(affected_docs) > 3:
-        return "more than 3 docs are affected; think deeply before broad edits and keep only source-tied changes"
-    return None
+        warnings.append("more than 3 docs are affected; think deeply before broad edits and keep only source-tied changes")
+    primary_changes = affected_docs.get(primary_doc, [])
+    if primary_changes and all(not is_high_signal(path) for path in primary_changes):
+        warnings.append("primary doc is affected only by non-high-signal changes; avoid editing the index unless top-level behavior, setup, or navigation changed")
+    return warnings
 
 
 def stable_doc_bytes(path: Path) -> bytes:
@@ -537,7 +545,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         root,
         previous_commit,
     )
-    budget_warning = soft_diff_budget_warning(source_change_paths, affected_docs)
+    budget_warnings = soft_diff_budget_warnings(source_change_paths, affected_docs, doc_rel)
     if not (root / doc_rel).exists():
         recommended_action = "create-docs"
     elif affected_docs:
@@ -578,7 +586,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "generated_doc_changes": generated_doc_changes,
         "affected_docs": affected_docs,
         "unmapped_changes": unmapped_changes,
-        "soft_diff_budget_warning": budget_warning,
+        "soft_diff_budget_warning": "; ".join(budget_warnings) if budget_warnings else None,
+        "soft_diff_budget_warnings": budget_warnings,
         "recommended_action": recommended_action,
     }
 
@@ -623,6 +632,15 @@ def format_plan(plan: dict) -> str:
         f"- recommended_action: {plan.get('recommended_action')}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         "",
+        "## Soft Diff Budget Warnings",
+    ]
+    budget_warnings = plan.get("soft_diff_budget_warnings", [])
+    if budget_warnings:
+        lines.extend(f"- {warning}" for warning in budget_warnings)
+    else:
+        lines.append("- (none)")
+    lines.extend([
+        "",
         "## Last Update Metadata",
         *format_json_block(plan.get("last_update_metadata")),
         "",
@@ -642,7 +660,7 @@ def format_plan(plan: dict) -> str:
         *format_changes(plan.get("dirty_changes", [])),
         "",
         "## Docs Inventory",
-    ]
+    ])
     doc_sources = plan.get("doc_sources", {})
     for doc in plan.get("docs", []):
         sources = doc_sources.get(doc, [])
@@ -702,9 +720,20 @@ def format_temp_plan(plan: dict) -> str:
         "",
         *format_json_block(plan.get("last_update_metadata")),
         "",
-        "## Intended Docs",
+        "## Soft Diff Budget Warnings",
         "",
     ]
+    budget_warnings = plan.get("soft_diff_budget_warnings", [])
+    if budget_warnings:
+        lines.extend(f"- {warning}" for warning in budget_warnings)
+    else:
+        lines.append("- (none)")
+
+    lines.extend([
+        "",
+        "## Intended Docs",
+        "",
+    ])
     for doc in plan.get("docs", []):
         lines.append(f"- {doc}")
     if not plan.get("docs"):
@@ -883,6 +912,7 @@ def main() -> int:
                         "plan_path": args.plan_path,
                         "recommended_action": plan.get("recommended_action"),
                         "soft_diff_budget_warning": plan.get("soft_diff_budget_warning"),
+                        "soft_diff_budget_warnings": plan.get("soft_diff_budget_warnings", []),
                         "last_update_metadata_source": plan.get("last_update_metadata_source"),
                     },
                     indent=2,
