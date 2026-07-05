@@ -16,7 +16,7 @@ DEFAULT_METADATA = "docs/project-context/.metadata.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "3"
+GENERATOR_VERSION = "4"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -420,10 +420,22 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     )
     changed_paths = []
     since_rows_for_impact = since_changes if has_previous_context else []
-    for row in [*since_rows_for_impact, *dirty_changes, *status_changes]:
+    impact_rows = [*since_rows_for_impact, *dirty_changes, *status_changes]
+    for row in impact_rows:
+        old_path = row.get("old_path")
+        if isinstance(old_path, str) and old_path not in changed_paths:
+            changed_paths.append(old_path)
         path = row.get("path")
         if isinstance(path, str) and path not in changed_paths:
             changed_paths.append(path)
+    renamed_paths = []
+    for row in impact_rows:
+        old_path = row.get("old_path")
+        path = row.get("path")
+        if isinstance(old_path, str) and isinstance(path, str):
+            rename = {"old_path": old_path, "path": path}
+            if rename not in renamed_paths:
+                renamed_paths.append(rename)
     generated_doc_changes = [path for path in changed_paths if is_generated_doc_path(path)]
     source_change_paths = [
         path
@@ -472,6 +484,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "since_changes": since_changes,
         "dirty_changes_label": dirty_label,
         "dirty_changes": dirty_changes,
+        "renamed_paths": renamed_paths,
         "source_change_paths": source_change_paths,
         "generated_doc_changes": generated_doc_changes,
         "affected_docs": affected_docs,
@@ -559,6 +572,13 @@ def format_plan(plan: dict) -> str:
         lines.extend(f"- {path}" for path in generated_doc_changes)
     else:
         lines.append("- (none)")
+    lines.extend(["", "## Renamed Paths"])
+    renamed_paths = plan.get("renamed_paths", [])
+    if renamed_paths:
+        for renamed_path in renamed_paths:
+            lines.append(f"- {renamed_path.get('old_path')} -> {renamed_path.get('path')}")
+    else:
+        lines.append("- (none)")
     return "\n".join(lines)
 
 
@@ -602,6 +622,14 @@ def format_temp_plan(plan: dict) -> str:
             lines.append(f"- source change: {path}")
             lines.append("  - docs affected: confirm whether a new section/source link is needed")
             lines.append("  - why: no existing context doc links to this source")
+    else:
+        lines.append("- (none)")
+
+    lines.extend(["", "## Renamed Paths", ""])
+    renamed_paths = plan.get("renamed_paths", [])
+    if renamed_paths:
+        for renamed_path in renamed_paths:
+            lines.append(f"- {renamed_path.get('old_path')} -> {renamed_path.get('path')}")
     else:
         lines.append("- (none)")
 

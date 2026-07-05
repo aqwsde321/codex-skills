@@ -218,10 +218,12 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 
 metadata 기록 규칙:
 
-- context 문서나 AGENTS reference를 실제로 생성/갱신했을 때 `record`를 실행한다.
+- context 문서를 실제로 생성/갱신했을 때 `record`를 실행한다.
+- AGENTS/CLAUDE reference만 바뀌고 context 문서 스냅샷이 그대로면 metadata를 새로 쓰지 않는다.
 - no-op update면 metadata만 새로 쓰지 않는다. 이전 문서가 어떤 source 기준인지 보존한다.
 - update는 이전 성공 metadata의 `gitHead`를 우선 기준으로 삼아 `git log <gitHead>..HEAD`, `git diff <gitHead>..HEAD`, `git diff HEAD`, `git status --short`를 모두 확인한다.
 - update는 변경 파일을 현재 문서의 source link와 매칭해 `affected_docs`를 만들고, 매칭되지 않은 변경은 `unmapped_changes`로 둔다.
+- rename이 감지되면 old path와 new path를 모두 영향 계산에 넣고 `renamed_paths`로 드러낸다.
 - `affected_docs`/`unmapped_changes`의 파일은 필요한 만큼 다시 읽어 현재 코드 동작을 확인한 뒤 문서를 고친다. 커밋 메시지나 diff 목록만으로 문서를 갱신하지 않는다.
 - 새 문서 생성 뒤에는 `--run-command init`, 기존 문서 갱신 뒤에는 `--run-command update`를 쓴다.
 - `record --if-changed`는 실제 문서 내용 hash가 바뀐 경우에만 metadata를 쓴다.
