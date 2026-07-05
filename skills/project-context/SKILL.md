@@ -103,6 +103,7 @@ CLI fallback:
 - 기존 `docs/project-context.md`, `docs/project-context/`, `openwiki/quickstart.md`, `openwiki/`, README/runbook/docs tree
 - 기존 README/docs/runbook은 primary source로 취급한다. 유효하면 요약하고 링크하며, 통째로 복제하지 않는다.
 - `project_context_update.py plan`의 affected/unmapped 변경
+- init run에서는 최근 `git log`, high-signal 파일의 `git show`/`git blame`을 선별적으로 써서 중요한 workflow와 entrypoint가 왜 생겼는지 확인한다.
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
 - repo root에서 `**/*` 전체 훑기는 피한다. `rg --files`와 디렉터리/확장자 기준 targeted read를 쓴다.
 - `rg`, `find`, `ls`, `git` 범위는 target repo 내부로 제한한다. 외부 workspace, parent repo, home directory를 discovery source로 삼지 않는다.
@@ -224,6 +225,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - metadata의 `gitHead`가 있으면 현재 git에서 조회 가능한 commit이고, 없으면 update가 `updatedAt` 기준으로 fallback한다고 경고
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit
 - metadata의 `content_hash`가 volatile frontmatter, metadata, `_plan.md`를 제외한 현재 context regular file/directory snapshot과 일치
+- primary doc frontmatter에 `generated_by: project-context`, `updated_at`, `mode: single-page|multi-page`, `source_commit`이 존재
 - 문서 frontmatter의 `source_commit`이 현재 git에서 조회 가능한 commit
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴

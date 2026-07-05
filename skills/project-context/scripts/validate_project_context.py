@@ -21,6 +21,7 @@ MIN_SUBPAGE_BODY_CHARS = 500
 MIN_SINGLE_FILE_SECTION_CHARS = 1500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
+UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
@@ -201,6 +202,19 @@ def read_json(path: Path) -> tuple[dict | None, str | None]:
     return value, None
 
 
+def parse_frontmatter(markdown: str) -> dict[str, str]:
+    match = FRONTMATTER_RE.match(markdown)
+    if not match:
+        return {}
+    fields: dict[str, str] = {}
+    for line in match.group(0).splitlines()[1:-1]:
+        key, separator, value = line.partition(":")
+        if not separator:
+            continue
+        fields[key.strip()] = value.strip().strip("'\"")
+    return fields
+
+
 def validate_repo_relative_path(label: str, value: str) -> str | None:
     path = Path(value)
     if value.strip() == "":
@@ -320,6 +334,7 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     doc_path = raw_doc_path.resolve()
     markdown = doc_path.read_text(encoding="utf-8", errors="replace")
     body = FRONTMATTER_RE.sub("", markdown).strip()
+    frontmatter = parse_frontmatter(markdown)
     absolute_links = [
         link
         for link in iter_markdown_links(markdown)
@@ -339,6 +354,18 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     commit_hashes = set(COMMIT_HASH_RE.findall(body))
     if len(commit_hashes) >= 3:
         warnings.append(f"{doc_rel}: persistent commit hash list suspected; keep git evidence in update metadata or temporary plan")
+
+    if require_metadata:
+        if not frontmatter:
+            errors.append(f"{doc_rel}: missing YAML frontmatter metadata")
+        if frontmatter.get("generated_by") != "project-context":
+            errors.append(f"{doc_rel}: missing metadata: generated_by: project-context")
+        updated_at = frontmatter.get("updated_at")
+        if not updated_at or not UPDATED_AT_RE.match(updated_at):
+            errors.append(f"{doc_rel}: missing metadata: updated_at ISO-8601 timestamp")
+        mode = frontmatter.get("mode")
+        if mode not in {"single-page", "multi-page"}:
+            errors.append(f"{doc_rel}: missing metadata: mode single-page|multi-page")
 
     source_commit_match = SOURCE_COMMIT_RE.search(markdown)
     if require_metadata and not source_commit_match:
