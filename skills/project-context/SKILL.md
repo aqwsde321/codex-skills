@@ -72,6 +72,7 @@ CLI fallback:
 - 기본: 단일 문서 `docs/project-context.md`
 - multi-page 조건: repo가 크거나 핵심 도메인/서비스/API 흐름이 4개 이상이면 `docs/project-context/` 하위 문서 추가
 - multi-page에서도 `docs/project-context.md`는 index, 갱신 기록, 읽는 순서를 담는다.
+- multi-page 문서는 서로 고립시키지 않는다. index에는 모든 하위 문서 링크를 두고, 하위 문서에는 index로 돌아가는 링크를 둔다.
 
 5. outline을 먼저 정하고 작성한다.
 
@@ -88,6 +89,15 @@ CLI fallback:
 - 근거
 - 갱신 기록
 
+multi-page 하위 문서 기본 구조:
+
+- 개요
+- 관련 소스
+- 주요 흐름
+- 작업 시 주의점
+- 검증 방법
+- 근거
+
 문서 상단에 metadata를 둔다.
 
 ```yaml
@@ -103,6 +113,8 @@ mode: single-page
 
 - 주요 주장에는 실제 repo 경로 근거를 붙인다.
 - source path는 가능한 한 Markdown 링크로 쓴다: `[README.md](../README.md)`
+- 모든 문서에는 `## 근거` 섹션을 두고, 해당 문서가 의존한 source path를 모은다.
+- multi-page 하위 문서는 `docs/project-context.md`로 돌아가는 링크를 둔다.
 - 절대경로, secret, private URL, credential은 쓰지 않는다.
 - 확인하지 못한 내용은 `확인 필요`로 표시한다.
 - 파일별 inventory를 길게 나열하지 말고 작업 판단에 필요한 구조만 쓴다.
@@ -130,6 +142,9 @@ python3 <skill-dir>/scripts/validate_project_context.py .
 - metadata의 `source_commit` 존재
 - 상대 Markdown source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
+- 모든 context 문서에 `## 근거` 섹션 존재
+- multi-page 하위 문서가 index 문서로 링크
+- `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - 현재 HEAD와 `source_commit`이 다르면 stale 경고
 
 ## 작업 전 내부 절차
