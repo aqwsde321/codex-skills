@@ -79,9 +79,11 @@ CLI fallback:
 4. high-signal context만 읽는다.
 
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
+- `.env`, private key, token, credential 파일은 읽지 않는다. 필요하면 설정 파일 존재와 non-secret setup 위치만 문서화한다.
 - 기존 `docs/project-context.md`와 `docs/project-context/`
 - `project_context_update.py plan`의 affected/unmapped 변경
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
+- repo root에서 `**/*` 전체 훑기는 피한다. `rg --files`와 디렉터리/확장자 기준 targeted read를 쓴다.
 
 5. 문서 모드를 고른다.
 
@@ -91,6 +93,15 @@ CLI fallback:
 - multi-page 문서는 서로 고립시키지 않는다. index에는 모든 하위 문서 링크를 두고, 하위 문서에는 index로 돌아가는 링크를 둔다.
 
 6. outline을 먼저 정하고 작성한다.
+
+OpenWiki처럼 최종 작성 전 임시 계획을 만든다.
+
+```bash
+mkdir -p docs/project-context
+$EDITOR docs/project-context/_plan.md
+```
+
+`_plan.md`에는 작성/갱신할 문서, 각 문서의 source evidence, 남은 질문만 둔다. 최종 완료 전 반드시 삭제한다.
 
 단일 문서 기본 구조:
 
@@ -131,6 +142,8 @@ mode: single-page
 - source path는 가능한 한 Markdown 링크로 쓴다: `[README.md](../README.md)`
 - 모든 문서에는 `## 근거` 섹션을 두고, 해당 문서가 의존한 source path를 모은다.
 - multi-page 하위 문서는 `docs/project-context.md`로 돌아가는 링크를 둔다.
+- 초기 생성은 특별한 이유가 없으면 전체 8문서 이하로 유지한다.
+- 얇은 문서, 스텁, source map뿐인 문서는 만들지 않는다. 넓은 문서의 heading으로 합친다.
 - 절대경로, secret, private URL, credential은 쓰지 않는다.
 - 확인하지 못한 내용은 `확인 필요`로 표시한다.
 - 파일별 inventory를 길게 나열하지 말고 작업 판단에 필요한 구조만 쓴다.
@@ -165,6 +178,7 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 10. 검증하고 metadata를 기록한다.
 
 ```bash
+rm -f docs/project-context/_plan.md
 python3 <skill-dir>/scripts/validate_project_context.py .
 python3 <skill-dir>/scripts/project_context_update.py record .
 ```
@@ -178,6 +192,8 @@ python3 <skill-dir>/scripts/project_context_update.py record .
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
 - 모든 context 문서에 `## 근거` 섹션 존재
 - multi-page 하위 문서가 index 문서로 링크
+- `docs/project-context/_plan.md`가 남아 있으면 실패
+- 얇은 하위 문서나 8개 초과 문서는 경고
 - `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - 현재 HEAD와 `source_commit`이 다르면 stale 경고
 

@@ -142,17 +142,21 @@ def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
     return match.group(1) if match else None
 
 
-def load_previous_commit(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str]:
+def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str | None, str]:
     metadata = read_json(root / metadata_rel)
     if metadata:
         for key in ("source_commit", "gitHead", "git_head"):
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip(), metadata_rel
+                return value.strip(), None, metadata_rel
+        for key in ("updated_at", "updatedAt"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return None, value.strip(), metadata_rel
     source_commit = read_source_commit_from_doc(root, doc_rel)
     if source_commit:
-        return source_commit, doc_rel
-    return None, "none"
+        return source_commit, None, doc_rel
+    return None, None, "none"
 
 
 def parse_name_status(output: str | None) -> list[dict]:
@@ -172,12 +176,21 @@ def parse_name_status(output: str | None) -> list[dict]:
     return rows
 
 
-def collect_git_changes(root: Path, previous_commit: str | None) -> tuple[str, str, str, list[dict], str, list[dict]]:
+def collect_git_changes(
+    root: Path,
+    previous_commit: str | None,
+    previous_updated_at: str | None,
+) -> tuple[str, str, str, list[dict], str, list[dict]]:
     if previous_commit:
         commit_label = f"git log {previous_commit}..HEAD --name-status --oneline"
         commit_output = run_git(root, ["log", f"{previous_commit}..HEAD", "--name-status", "--oneline"])
         since_output = run_git(root, ["diff", "--name-status", f"{previous_commit}..HEAD"])
         since_label = f"git diff --name-status {previous_commit}..HEAD"
+    elif previous_updated_at:
+        commit_label = f"git log --since {previous_updated_at} --name-status --oneline"
+        commit_output = run_git(root, ["log", "--since", previous_updated_at, "--name-status", "--oneline"])
+        since_output = commit_output
+        since_label = commit_label
     else:
         commit_label = "git log --max-count=20 --name-status --oneline"
         commit_output = run_git(root, ["log", "--max-count=20", "--name-status", "--oneline"])
@@ -312,10 +325,14 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
-    previous_commit, previous_source = load_previous_commit(root, doc_rel, metadata_rel)
+    previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
-    commit_label, commit_output, since_label, since_changes, dirty_label, dirty_changes = collect_git_changes(root, previous_commit)
+    commit_label, commit_output, since_label, since_changes, dirty_label, dirty_changes = collect_git_changes(
+        root,
+        previous_commit,
+        previous_updated_at,
+    )
     changed_paths = []
     for row in [*since_changes, *dirty_changes]:
         path = row.get("path")
@@ -350,6 +367,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "current_head": full_head,
         "current_head_short": short_head,
         "previous_commit": previous_commit,
+        "previous_updated_at": previous_updated_at,
         "previous_commit_source": previous_source,
         "metadata_path": metadata_rel,
         "primary_doc": doc_rel,
@@ -396,6 +414,7 @@ def format_plan(plan: dict) -> str:
         "",
         f"- current_head: {plan.get('current_head_short') or plan.get('current_head') or '(unknown)'}",
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
+        f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- previous_commit_source: {plan.get('previous_commit_source')}",
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- recommended_action: {plan.get('recommended_action')}",

@@ -10,9 +10,13 @@ from urllib.parse import unquote
 DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
+TEMP_PLAN = "docs/project-context/_plan.md"
+MAX_INITIAL_DOCS = 8
+MIN_SUBPAGE_BODY_CHARS = 500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
+FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
@@ -79,6 +83,7 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
         return [f"document is not a file: {doc_rel}"], warnings
 
     markdown = doc_path.read_text(encoding="utf-8", errors="replace")
+    body = FRONTMATTER_RE.sub("", markdown).strip()
     source_commit_match = SOURCE_COMMIT_RE.search(markdown)
     if require_metadata and not source_commit_match:
         errors.append(f"{doc_rel}: missing metadata: source_commit")
@@ -118,13 +123,21 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and not links_to_index:
         errors.append(f"{doc_rel}: missing link back to {DEFAULT_DOC}")
 
+    if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and doc_rel != TEMP_PLAN and len(body) < MIN_SUBPAGE_BODY_CHARS:
+        warnings.append(f"{doc_rel}: thin page; merge into {DEFAULT_DOC} or expand with source-grounded guidance")
+
     return errors, warnings
 
 
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
+    if (root / TEMP_PLAN).exists():
+        errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
     docs = discover_docs(root, doc_rel)
+    docs = [doc for doc in docs if doc != TEMP_PLAN]
+    if len(docs) > MAX_INITIAL_DOCS:
+        warnings.append(f"many context docs: {len(docs)}; initial OpenWiki-style runs usually stay at {MAX_INITIAL_DOCS} or fewer")
     for index, doc in enumerate(docs):
         doc_errors, doc_warnings = validate_doc(root, doc, require_metadata=index == 0)
         errors.extend(doc_errors)
