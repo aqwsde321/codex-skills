@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import errno
 import hashlib
 import json
 import re
@@ -17,7 +18,7 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "9"
+GENERATOR_VERSION = "10"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -451,6 +452,14 @@ def stable_doc_bytes(path: Path) -> bytes:
     return stable.encode("utf-8")
 
 
+def is_expected_snapshot_race_error(error: OSError) -> bool:
+    return isinstance(error, (FileNotFoundError, IsADirectoryError, NotADirectoryError)) or error.errno in {
+        errno.EISDIR,
+        errno.ENOENT,
+        errno.ENOTDIR,
+    }
+
+
 def snapshot_file_bytes(path: Path) -> bytes | None:
     try:
         if path.is_symlink() or not path.is_file():
@@ -478,6 +487,33 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
         digest.update(content)
         digest.update(b"\0")
 
+    def add_directory(directory: Path) -> None:
+        try:
+            entries = sorted(directory.iterdir(), key=lambda path: path.name)
+        except OSError as error:
+            if is_expected_snapshot_race_error(error):
+                digest.update("missing".encode("utf-8"))
+                return
+            raise
+        for path in entries:
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if rel in SNAPSHOT_EXCLUDED_PATHS or path.is_symlink():
+                continue
+            try:
+                if path.is_dir():
+                    digest.update(f"dir:{rel}".encode("utf-8"))
+                    digest.update(b"\0")
+                    add_directory(path)
+                elif path.is_file():
+                    add_file(rel, path)
+            except OSError as error:
+                if is_expected_snapshot_race_error(error):
+                    continue
+                raise
+
     primary_doc = docs[0] if docs else DEFAULT_DOC
     primary_path = root / primary_doc
     if primary_path.is_file():
@@ -485,16 +521,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
     doc_dir = root / DEFAULT_DOC_DIR
     if doc_dir.exists() and not doc_dir.is_symlink() and doc_dir.is_dir():
-        paths = sorted(doc_dir.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
-        for path in paths:
-            rel = path.relative_to(root).as_posix()
-            if rel in SNAPSHOT_EXCLUDED_PATHS or path.is_symlink():
-                continue
-            if path.is_dir():
-                digest.update(f"dir:{rel}".encode("utf-8"))
-                digest.update(b"\0")
-            elif path.is_file():
-                add_file(rel, path)
+        add_directory(doc_dir)
     return digest.hexdigest()
 
 
