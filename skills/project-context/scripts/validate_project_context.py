@@ -48,6 +48,11 @@ PRIMARY_DOC_SECTION_PATTERNS = {
         r"^##\s+(?:검증\s*방법|테스트|Testing|Validation|Checks?)\s*$",
         re.MULTILINE | re.IGNORECASE,
     ),
+    "workflow/domain guidance": re.compile(
+        r"^##\s+(?:주요\s*흐름|업무\s*흐름|도메인|비즈니스|제품\s*로직|"
+        r"Workflows?|Business Logic|Product Logic|Domain(?: Concepts?)?)\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
 }
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 REPOSITORY_OVERVIEW_TEXT = "repository overview"
