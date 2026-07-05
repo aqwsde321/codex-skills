@@ -37,6 +37,16 @@ command -v codebase-memory-mcp || /Users/slogup/.local/bin/codebase-memory-mcp -
 curl -fsSL https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/main/install.sh | bash
 ```
 
+## 모드 결정
+
+OpenWiki처럼 먼저 실행 모드를 고른다.
+
+- `chat`: 사용자가 프로젝트 설명, 위치 찾기, 작업 시작을 요청했지만 문서 생성을 명시하지 않았다. 기존 `docs/project-context.md`를 읽고 답한다. 문서나 metadata를 수정하지 않는다.
+- `init`: context 문서가 없거나 사용자가 프로젝트 컨텍스트 세팅/생성을 요청했다. 문서를 새로 만들고 `record --run-command init`로 기록한다.
+- `update`: context 문서가 있고 사용자가 갱신을 요청했거나 최근 source 변경 때문에 문서가 stale하다. 영향 문서만 고치고 `record --run-command update --if-changed --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"`로 기록한다.
+
+`chat` 중 사용자가 생성/갱신 방법을 물으면 절차를 설명한다. 실제 문서 수정은 사용자가 세팅/생성/갱신을 요청했을 때만 한다.
+
 ## 생성/갱신 절차
 
 1. repo root와 현재 상태를 확인한다.
@@ -198,7 +208,8 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 ```bash
 rm -f docs/project-context/_plan.md
 python3 <skill-dir>/scripts/validate_project_context.py .
-python3 <skill-dir>/scripts/project_context_update.py record . --run-command update --if-changed --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
+RUN_COMMAND=init  # use update for existing context docs
+python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$RUN_COMMAND" --if-changed --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
 ```
 
 검증 기준:
@@ -235,6 +246,7 @@ metadata 기록 규칙:
 - rename이 감지되면 old path와 new path를 모두 영향 계산에 넣고 `renamed_paths`로 드러낸다.
 - `affected_docs`/`unmapped_changes`의 파일은 필요한 만큼 다시 읽어 현재 코드 동작을 확인한 뒤 문서를 고친다. 커밋 메시지나 diff 목록만으로 문서를 갱신하지 않는다.
 - 새 문서 생성 뒤에는 `--run-command init`, 기존 문서 갱신 뒤에는 `--run-command update`를 쓴다.
+- `chat` 모드에서는 `record`를 실행하지 않는다.
 - `record --if-changed`는 실제 문서 내용 hash가 바뀐 경우에만 metadata를 쓴다.
 - `record --if-changed --before-hash <snapshot-hash>`는 OpenWiki의 before/after snapshot 비교와 같은 기준이다. hash가 같으면 metadata를 쓰지 않는다.
 - `record`는 `docs/project-context.md`가 없으면 실패한다.
