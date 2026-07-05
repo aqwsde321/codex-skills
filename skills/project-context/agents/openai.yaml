@@ -1,4 +1,4 @@
 interface:
   display_name: "Project Context"
-  short_description: "OpenWiki plus MCP repo onboarding"
-  default_prompt: "Use $project-context to prepare this repository for faster agent work."
+  short_description: "Codex-native repo context plus MCP onboarding"
+  default_prompt: "Use $project-context to create or update docs/project-context.md and prepare this repository for faster agent work."
