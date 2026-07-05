@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse
+import re
 import sys
 from pathlib import Path
 
 
 START_MARKER = "<!-- project-context:start -->"
 END_MARKER = "<!-- project-context:end -->"
+PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
 SECTION = f"""{START_MARKER}
 ## Project Context
 
@@ -35,8 +37,16 @@ def replace_marked_section(text: str) -> tuple[str, bool]:
             parts.append(suffix)
         next_text = "\n\n".join(parts).rstrip() + "\n"
         return next_text, next_text != text
-    if "docs/project-context.md" in text and "Project Context" in text:
-        return text if text.endswith("\n") else text + "\n", False
+    unmarked_section = PROJECT_CONTEXT_SECTION_RE.search(text)
+    if unmarked_section and "docs/project-context.md" in unmarked_section.group(0):
+        next_text = (
+            text[: unmarked_section.start()].rstrip()
+            + "\n\n"
+            + SECTION.rstrip()
+            + "\n\n"
+            + text[unmarked_section.end() :].lstrip()
+        ).strip() + "\n"
+        return next_text, next_text != text
     next_text = text.rstrip()
     if next_text:
         next_text += "\n\n"
