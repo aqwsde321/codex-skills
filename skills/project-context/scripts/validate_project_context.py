@@ -25,6 +25,13 @@ FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/var/folders)/[^\s)`>]+")
+PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
+SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(?:api[_-]?key|token|secret|password|passwd|credential)\b\s*[:=]\s*['\"]?"
+    r"(?!<|\$|\{|\[|your-|example|placeholder|redacted|xxx|todo|none|null|false|true)"
+    r"[A-Za-z0-9_./+=:@-]{12,}"
+)
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 CODEBASE_MEMORY_TEXT = "codebase-memory-mcp"
 SKILL_TRIGGER_TEXT = "$project-context"
@@ -222,6 +229,12 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
         errors.append(f"{doc_rel}: absolute link path is not allowed: {link}")
     for match in HOST_ABSOLUTE_PATH_RE.finditer(markdown):
         errors.append(f"{doc_rel}: host absolute path is not allowed: {match.group(0)}")
+    if PRIVATE_KEY_RE.search(markdown):
+        errors.append(f"{doc_rel}: private key material is not allowed")
+    if AWS_ACCESS_KEY_RE.search(markdown):
+        errors.append(f"{doc_rel}: secret-looking AWS access key is not allowed")
+    if SECRET_ASSIGNMENT_RE.search(markdown):
+        errors.append(f"{doc_rel}: secret-looking assignment value is not allowed")
 
     commit_hashes = set(COMMIT_HASH_RE.findall(body))
     if len(commit_hashes) >= 3:
