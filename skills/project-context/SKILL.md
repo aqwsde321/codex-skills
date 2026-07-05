@@ -263,7 +263,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - metadata의 `model`이 OpenWiki 호환 model id 형식이 아니거나 주변 공백이 있으면 경고하고, `record --model`/`--model-id`/`--modelId`는 URL/빈 값/120자 초과 값을 거부하며 저장 시 trim
 - metadata의 `gitHead`가 있으면 현재 git에서 조회 가능한 commit이고, 없으면 update가 `updatedAt` 기준으로 fallback한다고 경고
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit
-- metadata의 `content_hash`가 volatile frontmatter, metadata, `_plan.md`를 제외한 현재 context regular file/directory snapshot과 일치
+- metadata의 `content_hash`가 metadata, `_plan.md`를 제외한 현재 context regular file/directory raw file snapshot과 일치
 - primary doc frontmatter에 `generated_by: project-context`, `updated_at`, `mode: single-page|multi-page`, `source_commit`이 존재
 - 문서 frontmatter의 `source_commit`이 현재 git에서 조회 가능한 commit
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
@@ -306,7 +306,7 @@ metadata 기록 규칙:
 - helper script path option은 repo-relative regular path여야 하며 absolute path, `..` parent traversal, symlink parent는 실패한다.
 - `record`는 `docs/project-context/.metadata.json`에 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`과 현재 commit, 문서 목록, source link map, content hash를 저장한다.
 - `record`의 `updatedAt`/`updated_at`은 OpenWiki `new Date().toISOString()`과 같은 milliseconds 포함 UTC ISO timestamp로 저장한다.
-- content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter와 metadata, `_plan.md`를 제외한 context regular file/directory snapshot 기준이다.
+- content hash는 OpenWiki처럼 metadata, `_plan.md`를 제외한 context regular file/directory raw file snapshot 기준이다. `source_commit`, `updated_at` 같은 frontmatter도 문서 bytes이므로 hash에 포함한다.
 
 ## 작업 전 내부 절차
 

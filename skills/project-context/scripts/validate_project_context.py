@@ -29,7 +29,6 @@ EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
-VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/var/folders)/[^\s)`>]+")
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
@@ -259,24 +258,6 @@ def is_valid_model_id(value: str) -> bool:
     return 0 < len(model_id) <= 120 and "://" not in model_id and MODEL_ID_RE.match(model_id) is not None
 
 
-def stable_doc_bytes(path: Path) -> bytes:
-    markdown = path.read_text(encoding="utf-8", errors="replace")
-    if not markdown.startswith("---\n"):
-        return markdown.encode("utf-8")
-    lines = markdown.splitlines(keepends=True)
-    end_index = None
-    for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            end_index = index
-            break
-    if end_index is None:
-        return markdown.encode("utf-8")
-    frontmatter = "".join(lines[1:end_index])
-    stable_frontmatter = VOLATILE_FRONTMATTER_RE.sub("", frontmatter)
-    stable = "".join([lines[0], stable_frontmatter, *lines[end_index:]])
-    return stable.encode("utf-8")
-
-
 def is_expected_snapshot_race_error(error: OSError) -> bool:
     return isinstance(error, (FileNotFoundError, IsADirectoryError, NotADirectoryError)) or error.errno in {
         errno.EISDIR,
@@ -289,8 +270,6 @@ def snapshot_file_bytes(path: Path) -> bytes | None:
     try:
         if path.is_symlink() or not path.is_file():
             return None
-        if path.suffix == ".md":
-            return stable_doc_bytes(path)
         return path.read_bytes()
     except OSError:
         return None

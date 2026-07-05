@@ -18,13 +18,12 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "16"
+GENERATOR_VERSION = "17"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]*$")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
-VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 HIGH_SIGNAL_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
@@ -476,24 +475,6 @@ def run_git_block_from_changes(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def stable_doc_bytes(path: Path) -> bytes:
-    markdown = path.read_text(encoding="utf-8", errors="replace")
-    if not markdown.startswith("---\n"):
-        return markdown.encode("utf-8")
-    lines = markdown.splitlines(keepends=True)
-    end_index = None
-    for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            end_index = index
-            break
-    if end_index is None:
-        return markdown.encode("utf-8")
-    frontmatter = "".join(lines[1:end_index])
-    stable_frontmatter = VOLATILE_FRONTMATTER_RE.sub("", frontmatter)
-    stable = "".join([lines[0], stable_frontmatter, *lines[end_index:]])
-    return stable.encode("utf-8")
-
-
 def is_expected_snapshot_race_error(error: OSError) -> bool:
     return isinstance(error, (FileNotFoundError, IsADirectoryError, NotADirectoryError)) or error.errno in {
         errno.EISDIR,
@@ -506,8 +487,6 @@ def snapshot_file_bytes(path: Path) -> bytes | None:
     try:
         if path.is_symlink() or not path.is_file():
             return None
-        if path.suffix == ".md":
-            return stable_doc_bytes(path)
         return path.read_bytes()
     except OSError:
         return None
