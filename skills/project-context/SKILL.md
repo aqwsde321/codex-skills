@@ -208,7 +208,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - multi-page index가 모든 하위 context 문서로 링크
 - multi-page 하위 문서가 index 문서로 링크
 - `docs/project-context/_plan.md`가 남아 있으면 실패
-- 얇은 하위 문서나 8개 초과 문서는 경고
+- 얇은 하위 문서, 짧은 single-file section directory, 8개 초과 문서는 경고
 - `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - 현재 HEAD와 `source_commit`이 다르면 stale 경고
 

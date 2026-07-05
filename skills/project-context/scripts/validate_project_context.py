@@ -15,6 +15,7 @@ DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
 MAX_INITIAL_DOCS = 8
 MIN_SUBPAGE_BODY_CHARS = 500
+MIN_SINGLE_FILE_SECTION_CHARS = 1500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
@@ -320,6 +321,39 @@ def validate_index_links(root: Path, doc_rel: str, docs: list[str]) -> tuple[lis
     return errors, warnings
 
 
+def doc_body_length(root: Path, doc_rel: str) -> int:
+    path = root / doc_rel
+    if not path.exists() or not path.is_file():
+        return 0
+    markdown = path.read_text(encoding="utf-8", errors="replace")
+    return len(FRONTMATTER_RE.sub("", markdown).strip())
+
+
+def validate_section_directories(root: Path, docs: list[str]) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    section_docs: dict[str, list[str]] = {}
+    for doc in docs:
+        if not doc.startswith(f"{DEFAULT_DOC_DIR}/"):
+            continue
+        remainder = doc[len(DEFAULT_DOC_DIR) + 1 :]
+        if "/" not in remainder:
+            continue
+        section = remainder.split("/", 1)[0]
+        section_docs.setdefault(section, []).append(doc)
+
+    for section, section_doc_list in sorted(section_docs.items()):
+        if len(section_doc_list) == 1:
+            doc = section_doc_list[0]
+            body_length = doc_body_length(root, doc)
+            if body_length < MIN_SINGLE_FILE_SECTION_CHARS:
+                warnings.append(
+                    f"{DEFAULT_DOC_DIR}/{section}/: single-file section directory; prefer a broader page or heading unless this boundary is substantial"
+                )
+
+    return errors, warnings
+
+
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -339,6 +373,9 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     index_errors, index_warnings = validate_index_links(root, doc_rel, docs)
     errors.extend(index_errors)
     warnings.extend(index_warnings)
+    section_errors, section_warnings = validate_section_directories(root, docs)
+    errors.extend(section_errors)
+    warnings.extend(section_warnings)
 
     agent_files = ("AGENTS.md", "CLAUDE.md")
     existing_agent_files = [agent_file for agent_file in agent_files if (root / agent_file).exists()]
