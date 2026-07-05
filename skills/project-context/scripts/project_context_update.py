@@ -16,7 +16,7 @@ DEFAULT_METADATA = "docs/project-context/.metadata.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "4"
+GENERATOR_VERSION = "5"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -156,6 +156,20 @@ def read_json(path: Path) -> dict | None:
 
 def is_structured_update_metadata(metadata: dict) -> bool:
     return all(isinstance(metadata.get(key), str) and metadata.get(key).strip() for key in ("updatedAt", "command", "model"))
+
+
+def openwiki_update_metadata(metadata: dict | None) -> dict | None:
+    if not metadata or not is_structured_update_metadata(metadata):
+        return None
+    result = {
+        "updatedAt": metadata["updatedAt"].strip(),
+        "command": "init" if metadata["command"].strip() == "init" else "update",
+        "model": metadata["model"].strip(),
+    }
+    git_head = metadata.get("gitHead")
+    if isinstance(git_head, str) and git_head.strip():
+        result["gitHead"] = git_head.strip()
+    return result
 
 
 def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
@@ -409,6 +423,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
     git_status = run_git(root, ["status", "--short"])
     status_changes = parse_status_short(git_status)
+    last_update_metadata = openwiki_update_metadata(read_json(root / metadata_rel))
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
@@ -472,6 +487,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "git_head_label": "git rev-parse HEAD",
         "previous_commit": previous_commit,
         "previous_updated_at": previous_updated_at,
+        "last_update_metadata": last_update_metadata,
         "has_previous_context": has_previous_context,
         "previous_commit_source": previous_source,
         "metadata_path": metadata_rel,
@@ -514,6 +530,12 @@ def format_block(output: str | None) -> list[str]:
     return [f"  {line}" if line else "" for line in output.splitlines()]
 
 
+def format_json_block(value: dict | None) -> list[str]:
+    if value is None:
+        return ["  (none)"]
+    return [f"  {line}" for line in json.dumps(value, indent=2, ensure_ascii=False).splitlines()]
+
+
 def format_plan(plan: dict) -> str:
     lines = [
         "# Project Context Update Plan",
@@ -524,6 +546,9 @@ def format_plan(plan: dict) -> str:
         f"- previous_commit_source: {plan.get('previous_commit_source')}",
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        "",
+        "## Last Update Metadata",
+        *format_json_block(plan.get("last_update_metadata")),
         "",
         f"## {plan.get('git_status_label')}",
         *format_block(plan.get("git_status")),
@@ -594,6 +619,10 @@ def format_temp_plan(plan: dict) -> str:
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        "",
+        "## Last Update Metadata",
+        "",
+        *format_json_block(plan.get("last_update_metadata")),
         "",
         "## Intended Docs",
         "",
