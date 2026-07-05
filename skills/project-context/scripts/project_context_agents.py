@@ -73,8 +73,9 @@ def ensure_file(path: Path, create_if_missing: bool) -> tuple[str, bool]:
 def ensure_agent_files(root: Path) -> list[dict]:
     agents_path = root / "AGENTS.md"
     claude_path = root / "CLAUDE.md"
+    create_agents = not agents_path.exists() and not claude_path.exists()
     results = []
-    status, changed = ensure_file(agents_path, create_if_missing=True)
+    status, changed = ensure_file(agents_path, create_if_missing=create_agents)
     results.append({"path": "AGENTS.md", "status": status, "changed": changed})
     status, changed = ensure_file(claude_path, create_if_missing=False)
     results.append({"path": "CLAUDE.md", "status": status, "changed": changed})

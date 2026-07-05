@@ -169,12 +169,13 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         errors.extend(doc_errors)
         warnings.extend(doc_warnings)
 
-    for agent_file in ("AGENTS.md", "CLAUDE.md"):
+    agent_files = ("AGENTS.md", "CLAUDE.md")
+    existing_agent_files = [agent_file for agent_file in agent_files if (root / agent_file).exists()]
+    if not existing_agent_files:
+        warnings.append("missing AGENTS.md or CLAUDE.md project context reference")
+
+    for agent_file in existing_agent_files:
         agent_path = root / agent_file
-        if not agent_path.exists():
-            if agent_file == "AGENTS.md":
-                warnings.append("missing AGENTS.md project context reference")
-            continue
         if not agent_path.is_file():
             warnings.append(f"{agent_file} is not a file")
             continue
