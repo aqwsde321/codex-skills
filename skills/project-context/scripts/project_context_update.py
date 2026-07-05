@@ -190,6 +190,16 @@ def symlink_parent(root: Path, rel_path: str) -> str | None:
     return None
 
 
+def validate_repo_path(root: Path, label: str, value: str) -> str | None:
+    path_error = validate_repo_relative_path(label, value)
+    if path_error:
+        return path_error
+    symlink = symlink_parent(root, value)
+    if symlink:
+        return f"{label} parent must not be a symlink: {symlink}"
+    return None
+
+
 def is_structured_update_metadata(metadata: dict) -> bool:
     return all(isinstance(metadata.get(key), str) and metadata.get(key).strip() for key in ("updatedAt", "command", "model"))
 
@@ -835,7 +845,7 @@ def main() -> int:
         ("--metadata", args.metadata),
         ("--plan-path", args.plan_path),
     ):
-        path_error = validate_repo_relative_path(label, value)
+        path_error = validate_repo_path(root, label, value)
         if path_error:
             print(path_error, file=sys.stderr)
             return 2
@@ -889,9 +899,6 @@ def main() -> int:
         return 1
     doc_path = root / args.doc
     metadata_path = root / args.metadata
-    if metadata_path.parent.is_symlink():
-        print(f"metadata directory must not be a symlink: {(Path(args.metadata).parent).as_posix()}", file=sys.stderr)
-        return 1
     if doc_path.is_symlink() or not doc_path.is_file():
         print(f"primary context document must be a regular file before recording metadata: {args.doc}", file=sys.stderr)
         return 1

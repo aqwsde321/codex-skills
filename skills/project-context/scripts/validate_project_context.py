@@ -226,6 +226,25 @@ def validate_repo_relative_path(label: str, value: str) -> str | None:
     return None
 
 
+def symlink_parent(root: Path, rel_path: str) -> str | None:
+    current = root
+    for part in Path(rel_path).parent.parts:
+        current = current / part
+        if current.is_symlink():
+            return current.relative_to(root).as_posix()
+    return None
+
+
+def validate_repo_path(root: Path, label: str, value: str) -> str | None:
+    path_error = validate_repo_relative_path(label, value)
+    if path_error:
+        return path_error
+    symlink = symlink_parent(root, value)
+    if symlink:
+        return f"{label} parent must not be a symlink: {symlink}"
+    return None
+
+
 def stable_doc_bytes(path: Path) -> bytes:
     markdown = path.read_text(encoding="utf-8", errors="replace")
     if not markdown.startswith("---\n"):
@@ -654,7 +673,7 @@ def main() -> int:
     if not root.exists() or not root.is_dir():
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
-    doc_error = validate_repo_relative_path("--doc", args.doc)
+    doc_error = validate_repo_path(root, "--doc", args.doc)
     if doc_error:
         print(doc_error, file=sys.stderr)
         return 2
