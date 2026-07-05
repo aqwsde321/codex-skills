@@ -13,10 +13,11 @@ from urllib.parse import unquote
 DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
+OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "7"
+GENERATOR_VERSION = "8"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -185,6 +186,14 @@ def openwiki_update_metadata(metadata: dict | None) -> dict | None:
     return result
 
 
+def load_last_update_metadata(root: Path, metadata_rel: str) -> tuple[dict | None, str | None]:
+    for candidate in (metadata_rel, OPENWIKI_METADATA):
+        metadata = openwiki_update_metadata(read_json(root / candidate))
+        if metadata:
+            return metadata, candidate
+    return None, None
+
+
 def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
     doc_path = root / doc_rel
     if doc_path.is_symlink() or not doc_path.is_file():
@@ -195,13 +204,14 @@ def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
 
 
 def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str | None, str]:
-    metadata = read_json(root / metadata_rel)
-    if metadata and is_structured_update_metadata(metadata):
-        for key in ("gitHead", "source_commit", "git_head"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip() and git_commit_exists(root, value.strip()):
-                return value.strip(), None, metadata_rel
-        return None, metadata["updatedAt"].strip(), metadata_rel
+    for candidate in (metadata_rel, OPENWIKI_METADATA):
+        metadata = read_json(root / candidate)
+        if metadata and is_structured_update_metadata(metadata):
+            for key in ("gitHead", "source_commit", "git_head"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip() and git_commit_exists(root, value.strip()):
+                    return value.strip(), None, candidate
+            return None, metadata["updatedAt"].strip(), candidate
     source_commit = read_source_commit_from_doc(root, doc_rel)
     if source_commit and git_commit_exists(root, source_commit):
         return source_commit, None, doc_rel
@@ -436,7 +446,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     full_head, short_head = git_head(root)
     git_status = run_git(root, ["status", "--short", "--untracked-files=all"])
     status_changes = parse_status_short(git_status)
-    last_update_metadata = openwiki_update_metadata(read_json(root / metadata_rel))
+    last_update_metadata, last_update_metadata_source = load_last_update_metadata(root, metadata_rel)
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
@@ -501,6 +511,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "previous_commit": previous_commit,
         "previous_updated_at": previous_updated_at,
         "last_update_metadata": last_update_metadata,
+        "last_update_metadata_source": last_update_metadata_source,
         "has_previous_context": has_previous_context,
         "previous_commit_source": previous_source,
         "metadata_path": metadata_rel,
@@ -558,6 +569,7 @@ def format_plan(plan: dict) -> str:
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- previous_commit_source: {plan.get('previous_commit_source')}",
         f"- metadata_path: {plan.get('metadata_path')}",
+        f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
         "",
         "## Last Update Metadata",
@@ -632,6 +644,7 @@ def format_temp_plan(plan: dict) -> str:
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         "",
         "## Last Update Metadata",
         "",

@@ -77,8 +77,8 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `git status --short --untracked-files=all`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
-- 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다.
-- `last_update_metadata`: OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`만 보여준다. 이 값으로 이전 run의 성격과 기준 commit을 확인한다.
+- 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다. `docs/project-context/.metadata.json`이 없으면 OpenWiki 호환 `openwiki/.last-update.json`을 fallback으로 읽는다.
+- `last_update_metadata`: OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`만 보여준다. `last_update_metadata_source`로 어느 metadata를 기준으로 삼았는지 확인한다.
 - `snapshot`: OpenWiki처럼 문서 작성 전 content hash를 잡는다. 완료 후 `record --before-hash <hash> --if-changed`로 실제 문서 변경이 있을 때만 metadata를 기록한다.
 
 3. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.
@@ -247,7 +247,7 @@ metadata 기록 규칙:
 - context 문서를 실제로 생성/갱신했을 때 `record`를 실행한다.
 - AGENTS/CLAUDE reference만 바뀌고 context 문서 스냅샷이 그대로면 metadata를 새로 쓰지 않는다.
 - no-op update면 metadata만 새로 쓰지 않는다. 이전 문서가 어떤 source 기준인지 보존한다.
-- update는 이전 성공 metadata의 `gitHead`를 우선 기준으로 삼아 `git log <gitHead>..HEAD`, `git diff <gitHead>..HEAD`, `git diff HEAD`, `git status --short`를 모두 확인한다.
+- update는 이전 성공 metadata의 `gitHead`를 우선 기준으로 삼아 `git log <gitHead>..HEAD`, `git diff <gitHead>..HEAD`, `git diff HEAD`, `git status --short`를 모두 확인한다. project-context metadata가 없고 OpenWiki metadata가 있으면 `openwiki/.last-update.json`의 `gitHead`/`updatedAt`을 기준으로 삼는다.
 - update는 변경 파일을 현재 문서의 source link와 매칭해 `affected_docs`를 만들고, 매칭되지 않은 변경은 `unmapped_changes`로 둔다.
 - rename이 감지되면 old path와 new path를 모두 영향 계산에 넣고 `renamed_paths`로 드러낸다.
 - `affected_docs`/`unmapped_changes`의 파일은 필요한 만큼 다시 읽어 현재 코드 동작을 확인한 뒤 문서를 고친다. 커밋 메시지나 diff 목록만으로 문서를 갱신하지 않는다.
