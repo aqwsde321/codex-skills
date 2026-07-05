@@ -18,7 +18,7 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "10"
+GENERATOR_VERSION = "11"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -370,6 +370,10 @@ def is_generated_doc_path(path: str) -> bool:
     )
 
 
+def is_generated_metadata_path(path: str) -> bool:
+    return path in {DEFAULT_METADATA, DEFAULT_TEMP_PLAN, OPENWIKI_METADATA}
+
+
 def strip_agent_reference(text: str) -> str:
     start = text.find(AGENT_START_MARKER)
     end = text.find(AGENT_END_MARKER)
@@ -561,6 +565,9 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
             if rename not in renamed_paths:
                 renamed_paths.append(rename)
     generated_doc_changes = [path for path in changed_paths if is_generated_doc_path(path)]
+    generated_context_doc_changes = [
+        path for path in generated_doc_changes if not is_generated_metadata_path(path)
+    ]
     source_change_paths = [
         path
         for path in changed_paths
@@ -582,6 +589,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         recommended_action = "update-affected-docs"
     elif source_change_paths:
         recommended_action = "review-unmapped-changes"
+    elif generated_context_doc_changes:
+        recommended_action = "review-generated-doc-changes"
     elif not has_previous_context and since_changes:
         recommended_action = "review-recent-history"
     else:
@@ -615,6 +624,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "renamed_paths": renamed_paths,
         "source_change_paths": source_change_paths,
         "generated_doc_changes": generated_doc_changes,
+        "generated_context_doc_changes": generated_context_doc_changes,
         "affected_docs": affected_docs,
         "unmapped_changes": unmapped_changes,
         "soft_diff_budget_warning": "; ".join(budget_warnings) if budget_warnings else None,
@@ -723,6 +733,12 @@ def format_plan(plan: dict) -> str:
         lines.extend(f"- {path}" for path in generated_doc_changes)
     else:
         lines.append("- (none)")
+    lines.extend(["", "## Generated Context Doc Changes"])
+    generated_context_doc_changes = plan.get("generated_context_doc_changes", [])
+    if generated_context_doc_changes:
+        lines.extend(f"- {path}" for path in generated_context_doc_changes)
+    else:
+        lines.append("- (none)")
     lines.extend(["", "## Renamed Paths"])
     renamed_paths = plan.get("renamed_paths", [])
     if renamed_paths:
@@ -791,6 +807,15 @@ def format_temp_plan(plan: dict) -> str:
             lines.append(f"- source change: {path}")
             lines.append("  - docs affected: confirm whether a new section/source link is needed")
             lines.append("  - why: no existing context doc links to this source")
+    else:
+        lines.append("- (none)")
+
+    lines.extend(["", "## Generated Context Doc Changes", ""])
+    generated_context_doc_changes = plan.get("generated_context_doc_changes", [])
+    if generated_context_doc_changes:
+        for path in generated_context_doc_changes:
+            lines.append(f"- context doc change: {path}")
+            lines.append("  - action: verify whether the local doc edit is intended, stale, or should be recorded")
     else:
         lines.append("- (none)")
 
@@ -947,6 +972,7 @@ def main() -> int:
                         "missing_last_update_warning": plan.get("missing_last_update_warning"),
                         "soft_diff_budget_warning": plan.get("soft_diff_budget_warning"),
                         "soft_diff_budget_warnings": plan.get("soft_diff_budget_warnings", []),
+                        "generated_context_doc_changes": plan.get("generated_context_doc_changes", []),
                         "last_update_metadata_source": plan.get("last_update_metadata_source"),
                     },
                     indent=2,

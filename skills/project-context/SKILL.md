@@ -70,11 +70,13 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: create-docs`: context 문서가 없거나 최소 요건이 없다. 새로 만든다.
 - `recommended_action: update-affected-docs`: 바뀐 source link와 연결된 문서만 갱신한다.
 - `recommended_action: review-unmapped-changes`: 변경 파일이 기존 문서 근거와 직접 연결되지 않았다. 새 근거/새 섹션/무시 중 하나를 판단한다.
+- `recommended_action: review-generated-doc-changes`: context 문서 자체가 바뀌었다. 사용자가 의도한 편집인지, stale한 생성물인지, metadata 기록이 필요한 변경인지 확인한다.
 - `recommended_action: review-recent-history`: 이전 성공 metadata가 없다. 최근 commit evidence를 읽고 문서 기준점을 잡거나 `record`로 metadata를 생성할지 판단한다.
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
 - `missing_last_update_warning`: 기존 문서는 있지만 이전 성공 metadata/source_commit 기준점이 없다. 최근 commit history와 현재 source를 더 보수적으로 확인한 뒤 편집한다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
+- `generated_context_doc_changes`: metadata/temp plan이 아닌 context 문서 변경이다. source 변경 없이 이것만 있으면 검증 후 record 또는 되돌림 여부를 판단한다.
 - `soft_diff_budget_warning`/`soft_diff_budget_warnings`: OpenWiki식 update budget 경고다. source 변경이 작거나 primary/index 문서가 low-signal 변경만으로 영향 받으면 broad rewrite를 하지 않는다.
 - `git status --short --untracked-files=all`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
