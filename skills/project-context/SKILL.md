@@ -47,7 +47,22 @@ git status --short
 ls docs/project-context.md AGENTS.md README.md 2>/dev/null
 ```
 
-2. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.
+2. 이전 성공 갱신 이후 변경 계획을 만든다. 이 계획은 LangChain OpenWiki의 `gitHead`/`updatedAt` 기반 update run을 축소한 것이다.
+
+```bash
+python3 <skill-dir>/scripts/project_context_update.py plan .
+```
+
+계획 해석:
+
+- `recommended_action: create-docs`: context 문서가 없거나 최소 요건이 없다. 새로 만든다.
+- `recommended_action: update-affected-docs`: 바뀐 source link와 연결된 문서만 갱신한다.
+- `recommended_action: review-unmapped-changes`: 변경 파일이 기존 문서 근거와 직접 연결되지 않았다. 새 근거/새 섹션/무시 중 하나를 판단한다.
+- `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
+- `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
+- `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
+
+3. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.
 
 - `list_projects` 또는 `index_status`로 현재 repo 인덱스 확인
 - 없으면 `index_repository`
@@ -60,21 +75,21 @@ CLI fallback:
 /Users/slogup/.local/bin/codebase-memory-mcp cli list_projects '{}'
 ```
 
-3. high-signal context만 읽는다.
+4. high-signal context만 읽는다.
 
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
 - 기존 `docs/project-context.md`와 `docs/project-context/`
-- `git diff --stat`, `git log --oneline -5`
+- `project_context_update.py plan`의 affected/unmapped 변경
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
 
-4. 문서 모드를 고른다.
+5. 문서 모드를 고른다.
 
 - 기본: 단일 문서 `docs/project-context.md`
 - multi-page 조건: repo가 크거나 핵심 도메인/서비스/API 흐름이 4개 이상이면 `docs/project-context/` 하위 문서 추가
 - multi-page에서도 `docs/project-context.md`는 index, 갱신 기록, 읽는 순서를 담는다.
 - multi-page 문서는 서로 고립시키지 않는다. index에는 모든 하위 문서 링크를 두고, 하위 문서에는 index로 돌아가는 링크를 둔다.
 
-5. outline을 먼저 정하고 작성한다.
+6. outline을 먼저 정하고 작성한다.
 
 단일 문서 기본 구조:
 
@@ -109,7 +124,7 @@ mode: single-page
 ---
 ```
 
-6. source-grounded 규칙을 지킨다.
+7. source-grounded 규칙을 지킨다.
 
 - 주요 주장에는 실제 repo 경로 근거를 붙인다.
 - source path는 가능한 한 Markdown 링크로 쓴다: `[README.md](../README.md)`
@@ -119,8 +134,19 @@ mode: single-page
 - 확인하지 못한 내용은 `확인 필요`로 표시한다.
 - 파일별 inventory를 길게 나열하지 말고 작업 판단에 필요한 구조만 쓴다.
 - 기존 문서가 있으면 전체 재작성보다 stale 섹션만 갱신한다.
+- update run에서는 `project_context_update.py plan`의 영향 계획을 먼저 따른다. 최근 변경과 무관한 문서는 건드리지 않는다.
+- 변경 source가 기존 문서 어느 곳에도 연결되지 않으면, 관련 없는 변경인지 새 문서/근거가 필요한 변경인지 판단한 뒤 기록한다.
 
-7. `AGENTS.md`에 context 문서 안내가 없으면 추가한다. 프로젝트 지침을 망가뜨리지 말고 짧은 블록만 더한다.
+8. update run은 surgical하게 한다.
+
+- commit/dirty 변경을 먼저 읽고 `source change -> affected doc -> edit needed -> why` 형태로 짧은 내부 계획을 만든다.
+- 정확한 기존 문장은 유지한다. 틀린 문장만 고친다.
+- formatting-only, table reorder, wording polish만 하는 변경은 하지 않는다.
+- 변경 파일이 5개 미만이면 보통 1-2개 문서만 갱신한다.
+- top-level 제품 동작, setup, navigation이 바뀐 경우에만 index 문서를 크게 갱신한다.
+- 이미 current면 문서를 수정하지 않고 "already current"로 보고한다.
+
+9. `AGENTS.md`에 context 문서 안내가 없으면 추가한다. 프로젝트 지침을 망가뜨리지 말고 짧은 블록만 더한다.
 
 ```markdown
 ## Project Context
@@ -130,15 +156,17 @@ mode: single-page
 - 문서가 stale이면 `$project-context`로 갱신한다.
 ```
 
-8. 검증한다.
+10. 검증하고 metadata를 기록한다.
 
 ```bash
 python3 <skill-dir>/scripts/validate_project_context.py .
+python3 <skill-dir>/scripts/project_context_update.py record .
 ```
 
 검증 기준:
 
 - `docs/project-context.md` 존재
+- `docs/project-context/.metadata.json`은 성공 갱신 후 기록
 - metadata의 `source_commit` 존재
 - 상대 Markdown source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
@@ -146,6 +174,12 @@ python3 <skill-dir>/scripts/validate_project_context.py .
 - multi-page 하위 문서가 index 문서로 링크
 - `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - 현재 HEAD와 `source_commit`이 다르면 stale 경고
+
+metadata 기록 규칙:
+
+- context 문서나 AGENTS reference를 실제로 생성/갱신했을 때 `record`를 실행한다.
+- no-op update면 metadata만 새로 쓰지 않는다. 이전 문서가 어떤 source 기준인지 보존한다.
+- `record`는 `docs/project-context/.metadata.json`에 현재 commit, 문서 목록, source link map, content hash를 저장한다.
 
 ## 작업 전 내부 절차
 

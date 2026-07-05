@@ -9,6 +9,7 @@ from urllib.parse import unquote
 
 DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
+DEFAULT_METADATA = "docs/project-context/.metadata.json"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
@@ -132,6 +133,10 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         agents_text = agents_path.read_text(encoding="utf-8", errors="replace")
         if CONTEXT_DOC_TEXT not in agents_text:
             warnings.append(f"AGENTS.md does not mention {CONTEXT_DOC_TEXT}")
+
+    metadata_path = root / DEFAULT_METADATA
+    if not metadata_path.exists():
+        warnings.append(f"missing update metadata: {DEFAULT_METADATA}")
 
     if errors:
         return 1, errors, warnings
