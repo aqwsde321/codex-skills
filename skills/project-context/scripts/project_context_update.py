@@ -19,6 +19,7 @@ AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
+VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at):\s*.*$", re.MULTILINE)
 HIGH_SIGNAL_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
@@ -171,15 +172,26 @@ def parse_name_status(output: str | None) -> list[dict]:
     return rows
 
 
-def collect_git_changes(root: Path, previous_commit: str | None) -> tuple[str, list[dict], str, list[dict]]:
+def collect_git_changes(root: Path, previous_commit: str | None) -> tuple[str, str, str, list[dict], str, list[dict]]:
     if previous_commit:
+        commit_label = f"git log {previous_commit}..HEAD --name-status --oneline"
+        commit_output = run_git(root, ["log", f"{previous_commit}..HEAD", "--name-status", "--oneline"])
         since_output = run_git(root, ["diff", "--name-status", f"{previous_commit}..HEAD"])
         since_label = f"git diff --name-status {previous_commit}..HEAD"
     else:
-        since_output = run_git(root, ["log", "--max-count=20", "--name-status", "--oneline"])
-        since_label = "git log --max-count=20 --name-status --oneline"
+        commit_label = "git log --max-count=20 --name-status --oneline"
+        commit_output = run_git(root, ["log", "--max-count=20", "--name-status", "--oneline"])
+        since_output = commit_output
+        since_label = commit_label
     dirty_output = run_git(root, ["diff", "--name-status", "HEAD"])
-    return since_label, parse_name_status(since_output), "git diff --name-status HEAD", parse_name_status(dirty_output)
+    return (
+        commit_label,
+        commit_output,
+        since_label,
+        parse_name_status(since_output),
+        "git diff --name-status HEAD",
+        parse_name_status(dirty_output),
+    )
 
 
 def collect_doc_sources(root: Path, docs: list[str]) -> dict[str, list[str]]:
@@ -267,6 +279,24 @@ def map_affected_docs(
     return affected, unmapped
 
 
+def stable_doc_bytes(path: Path) -> bytes:
+    markdown = path.read_text(encoding="utf-8", errors="replace")
+    if not markdown.startswith("---\n"):
+        return markdown.encode("utf-8")
+    lines = markdown.splitlines(keepends=True)
+    end_index = None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            end_index = index
+            break
+    if end_index is None:
+        return markdown.encode("utf-8")
+    frontmatter = "".join(lines[1:end_index])
+    stable_frontmatter = VOLATILE_FRONTMATTER_RE.sub("", frontmatter)
+    stable = "".join([lines[0], stable_frontmatter, *lines[end_index:]])
+    return stable.encode("utf-8")
+
+
 def docs_content_hash(root: Path, docs: list[str]) -> str:
     digest = hashlib.sha256()
     for doc in docs:
@@ -275,7 +305,7 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
             continue
         digest.update(doc.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(stable_doc_bytes(path))
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -285,7 +315,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     previous_commit, previous_source = load_previous_commit(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
-    since_label, since_changes, dirty_label, dirty_changes = collect_git_changes(root, previous_commit)
+    commit_label, commit_output, since_label, since_changes, dirty_label, dirty_changes = collect_git_changes(root, previous_commit)
     changed_paths = []
     for row in [*since_changes, *dirty_changes]:
         path = row.get("path")
@@ -325,6 +355,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "primary_doc": doc_rel,
         "docs": docs,
         "doc_sources": source_map,
+        "commit_evidence_label": commit_label,
+        "commit_evidence": commit_output,
         "since_changes_label": since_label,
         "since_changes": since_changes,
         "dirty_changes_label": dirty_label,
@@ -352,6 +384,12 @@ def format_changes(rows: list[dict]) -> list[str]:
     return lines
 
 
+def format_block(output: str | None) -> list[str]:
+    if not output:
+        return ["  (none)"]
+    return [f"  {line}" if line else "" for line in output.splitlines()]
+
+
 def format_plan(plan: dict) -> str:
     lines = [
         "# Project Context Update Plan",
@@ -361,6 +399,9 @@ def format_plan(plan: dict) -> str:
         f"- previous_commit_source: {plan.get('previous_commit_source')}",
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        "",
+        f"## {plan.get('commit_evidence_label')}",
+        *format_block(plan.get("commit_evidence")),
         "",
         f"## {plan.get('since_changes_label')}",
         *format_changes(plan.get("since_changes", [])),

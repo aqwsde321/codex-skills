@@ -61,6 +61,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `recommended_action: no-op`: 변경 없음. validate만 통과하면 문서를 건드리지 않는다.
 - `affected_docs`: 갱신 후보 문서다. 정확한지 확인하되 기본적으로 이 목록을 넘지 않는다.
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
+- `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 
 3. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.
 
@@ -136,6 +137,7 @@ mode: single-page
 - 기존 문서가 있으면 전체 재작성보다 stale 섹션만 갱신한다.
 - update run에서는 `project_context_update.py plan`의 영향 계획을 먼저 따른다. 최근 변경과 무관한 문서는 건드리지 않는다.
 - 변경 source가 기존 문서 어느 곳에도 연결되지 않으면, 관련 없는 변경인지 새 문서/근거가 필요한 변경인지 판단한 뒤 기록한다.
+- 커밋 메시지만 믿지 않는다. `affected_docs`/`unmapped_changes`에 나온 파일은 필요한 만큼 다시 읽고, 현재 코드가 실제로 어떻게 동작하는지 확인한 뒤 문서를 갱신한다.
 
 8. update run은 surgical하게 한다.
 
@@ -184,6 +186,7 @@ metadata 기록 규칙:
 - context 문서나 AGENTS reference를 실제로 생성/갱신했을 때 `record`를 실행한다.
 - no-op update면 metadata만 새로 쓰지 않는다. 이전 문서가 어떤 source 기준인지 보존한다.
 - `record`는 `docs/project-context/.metadata.json`에 현재 commit, 문서 목록, source link map, content hash를 저장한다.
+- content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter를 제외한 실제 문서 내용 기준이다.
 
 ## 작업 전 내부 절차
 
