@@ -287,6 +287,7 @@ metadata 기록 규칙:
 - `record`와 `validate`는 context 문서, context 문서 디렉터리, metadata symlink를 허용하지 않는다. source-grounded 문서는 repo 안 regular file이어야 한다.
 - helper script path option은 repo-relative regular path여야 하며 absolute path, `..` parent traversal, symlink parent는 실패한다.
 - `record`는 `docs/project-context/.metadata.json`에 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`과 현재 commit, 문서 목록, source link map, content hash를 저장한다.
+- `record`의 `updatedAt`/`updated_at`은 OpenWiki `new Date().toISOString()`과 같은 milliseconds 포함 UTC ISO timestamp로 저장한다.
 - content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter와 metadata, `_plan.md`를 제외한 context regular file/directory snapshot 기준이다.
 
 ## 작업 전 내부 절차
