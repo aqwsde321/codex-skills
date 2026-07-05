@@ -517,6 +517,8 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
     model = metadata.get("model")
     if isinstance(model, str) and model.strip() and not is_valid_model_id(model):
         warnings.append(f"{DEFAULT_METADATA}: model should be an OpenWiki-compatible model id")
+    if isinstance(model, str) and model.strip() and model != model.strip():
+        warnings.append(f"{DEFAULT_METADATA}: model should not have surrounding whitespace")
 
     command = metadata.get("command")
     if isinstance(command, str) and command.strip() and command not in {"init", "update"}:

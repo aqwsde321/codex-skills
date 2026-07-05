@@ -18,7 +18,7 @@ OPENWIKI_METADATA = "openwiki/.last-update.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "13"
+GENERATOR_VERSION = "14"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -889,6 +889,7 @@ def record_metadata(
     source_map = collect_doc_sources(root, docs)
     content_hash = docs_content_hash(root, docs)
     previous_metadata = read_json(root / metadata_rel) or {}
+    normalized_model = model.strip()
     if if_changed and before_hash and before_hash == content_hash:
         return {
             "skipped": True,
@@ -916,7 +917,7 @@ def record_metadata(
         "updated_at": updated_at,
         "updatedAt": updated_at,
         "command": run_command,
-        "model": model,
+        "model": normalized_model,
         "source_commit": full_head,
         "source_commit_short": short_head,
         "gitHead": full_head,
