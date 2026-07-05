@@ -19,7 +19,7 @@ AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
-VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at):\s*.*$", re.MULTILINE)
+VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 HIGH_SIGNAL_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
@@ -463,20 +463,44 @@ def format_plan(plan: dict) -> str:
     return "\n".join(lines)
 
 
-def record_metadata(root: Path, doc_rel: str, metadata_rel: str) -> dict:
+def record_metadata(
+    root: Path,
+    doc_rel: str,
+    metadata_rel: str,
+    run_command: str,
+    model: str,
+    if_changed: bool,
+) -> dict:
     full_head, short_head = git_head(root)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
+    content_hash = docs_content_hash(root, docs)
+    previous_metadata = read_json(root / metadata_rel) or {}
+    if if_changed and previous_metadata.get("content_hash") == content_hash:
+        return {
+            "skipped": True,
+            "reason": "content_hash unchanged",
+            "metadata_path": metadata_rel,
+            "source_commit": previous_metadata.get("source_commit") or previous_metadata.get("gitHead"),
+            "source_commit_short": previous_metadata.get("source_commit_short"),
+            "docs": docs,
+            "content_hash": content_hash,
+        }
+    updated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     metadata = {
         "generator": GENERATOR,
         "generator_version": GENERATOR_VERSION,
-        "updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "updated_at": updated_at,
+        "updatedAt": updated_at,
+        "command": run_command,
+        "model": model,
         "source_commit": full_head,
         "source_commit_short": short_head,
+        "gitHead": full_head,
         "primary_doc": doc_rel,
         "docs": docs,
         "doc_sources": source_map,
-        "content_hash": docs_content_hash(root, docs),
+        "content_hash": content_hash,
     }
     metadata_path = root / metadata_rel
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
@@ -490,6 +514,9 @@ def main() -> int:
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Primary doc path. Default: {DEFAULT_DOC}")
     parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
+    parser.add_argument("--run-command", choices=["init", "update"], default="update", help="OpenWiki-compatible run command stored in metadata.")
+    parser.add_argument("--model", default="codex", help="OpenWiki-compatible model label stored in metadata.")
+    parser.add_argument("--if-changed", action="store_true", help="Do not rewrite metadata when documentation content hash is unchanged.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     args = parser.parse_args()
 
@@ -506,9 +533,12 @@ def main() -> int:
             print(format_plan(plan))
         return 0
 
-    metadata = record_metadata(root, args.doc, args.metadata)
+    metadata = record_metadata(root, args.doc, args.metadata, args.run_command, args.model, args.if_changed)
     if args.json:
         print(json.dumps(metadata, indent=2, ensure_ascii=False))
+    elif metadata.get("skipped"):
+        print(f"metadata unchanged: {args.metadata}")
+        print(f"reason: {metadata.get('reason')}")
     else:
         print(f"metadata written: {args.metadata}")
         print(f"source_commit: {metadata.get('source_commit_short') or metadata.get('source_commit')}")
