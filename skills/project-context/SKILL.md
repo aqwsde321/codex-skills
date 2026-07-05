@@ -186,6 +186,7 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 - `AGENTS.md`나 `CLAUDE.md`가 있으면 존재하는 top-level 파일에 안내를 보장한다.
 - 둘 다 없으면 top-level `AGENTS.md`를 생성한다.
 - project-context marker section이 있으면 교체한다.
+- marked section이 의미상 current면 공백/문구 정규화만 하려고 수정하지 않는다.
 - unmarked `## Project Context` 섹션이 있으면 내용이 stale하거나 다른 경로를 가리키더라도 marked 표준 section으로 교체한다.
 - project-context marker section이 중복되어 있으면 하나의 표준 section으로 합친다.
 - 주변 지침은 보존한다.

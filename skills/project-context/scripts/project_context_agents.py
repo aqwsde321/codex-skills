@@ -26,9 +26,19 @@ When working in this repository, read the project context first, then use `codeb
 """
 
 
+def is_semantically_current_section(section: str) -> bool:
+    return (
+        "docs/project-context.md" in section
+        and "codebase-memory-mcp" in section
+        and "$project-context" in section
+    )
+
+
 def replace_marked_section(text: str) -> tuple[str, bool]:
     marked_sections = list(MARKED_SECTION_RE.finditer(text))
     if marked_sections:
+        if len(marked_sections) == 1 and is_semantically_current_section(marked_sections[0].group(0)):
+            return text, False
         parts = []
         cursor = 0
         inserted = False
