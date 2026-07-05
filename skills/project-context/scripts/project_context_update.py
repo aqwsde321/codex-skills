@@ -780,6 +780,9 @@ def main() -> int:
             if (root / args.plan_path).parent.is_symlink():
                 print(f"temporary plan directory must not be a symlink: {(Path(args.plan_path).parent).as_posix()}", file=sys.stderr)
                 return 1
+            if (root / args.plan_path).is_symlink():
+                print(f"temporary plan path must not be a symlink: {args.plan_path}", file=sys.stderr)
+                return 1
             plan_path = write_temp_plan(root, args.plan_path, plan)
             if args.json:
                 print(json.dumps({"plan_path": args.plan_path, "recommended_action": plan.get("recommended_action")}, indent=2, ensure_ascii=False))
