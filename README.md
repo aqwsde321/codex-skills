@@ -72,6 +72,7 @@ codex-skills/
     │   ├── agents/
     │   │   └── openai.yaml
     │   └── scripts/
+    │       ├── project_context_agents.py
     │       ├── project_context_update.py
     │       └── validate_project_context.py
     ├── review-fix-test/

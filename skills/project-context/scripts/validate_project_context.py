@@ -14,6 +14,8 @@ LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 CONTEXT_DOC_TEXT = "docs/project-context.md"
+AGENT_START_MARKER = "<!-- project-context:start -->"
+AGENT_END_MARKER = "<!-- project-context:end -->"
 
 
 def git_short_head(root: Path) -> str | None:
@@ -128,11 +130,20 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         errors.extend(doc_errors)
         warnings.extend(doc_warnings)
 
-    agents_path = root / "AGENTS.md"
-    if agents_path.exists() and agents_path.is_file():
-        agents_text = agents_path.read_text(encoding="utf-8", errors="replace")
-        if CONTEXT_DOC_TEXT not in agents_text:
-            warnings.append(f"AGENTS.md does not mention {CONTEXT_DOC_TEXT}")
+    for agent_file in ("AGENTS.md", "CLAUDE.md"):
+        agent_path = root / agent_file
+        if not agent_path.exists():
+            if agent_file == "AGENTS.md":
+                warnings.append("missing AGENTS.md project context reference")
+            continue
+        if not agent_path.is_file():
+            warnings.append(f"{agent_file} is not a file")
+            continue
+        agent_text = agent_path.read_text(encoding="utf-8", errors="replace")
+        if CONTEXT_DOC_TEXT not in agent_text:
+            warnings.append(f"{agent_file} does not mention {CONTEXT_DOC_TEXT}")
+        elif AGENT_START_MARKER not in agent_text or AGENT_END_MARKER not in agent_text:
+            warnings.append(f"{agent_file} project context reference is unmarked")
 
     metadata_path = root / DEFAULT_METADATA
     if not metadata_path.exists():

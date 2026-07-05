@@ -146,15 +146,19 @@ mode: single-page
 - top-level 제품 동작, setup, navigation이 바뀐 경우에만 index 문서를 크게 갱신한다.
 - 이미 current면 문서를 수정하지 않고 "already current"로 보고한다.
 
-9. `AGENTS.md`에 context 문서 안내가 없으면 추가한다. 프로젝트 지침을 망가뜨리지 말고 짧은 블록만 더한다.
+9. top-level agent instruction 파일에 context 문서 안내를 보장한다. OpenWiki처럼 top-level 파일만 다룬다. nested `AGENTS.md`/`CLAUDE.md`는 건드리지 않는다.
 
-```markdown
-## Project Context
-
-- 작업 전 `docs/project-context.md`가 있으면 먼저 읽고 큰 그림을 잡는다.
-- 코드 위치, 호출 관계, 영향 범위는 `codebase-memory-mcp`로 확인한다.
-- 문서가 stale이면 `$project-context`로 갱신한다.
+```bash
+python3 <skill-dir>/scripts/project_context_agents.py .
 ```
+
+동작:
+
+- `AGENTS.md`가 없으면 생성한다.
+- `AGENTS.md`에 project-context marker section이 있으면 교체한다.
+- `AGENTS.md`에 이미 의미상 맞는 project context 안내가 있으면 그대로 둔다.
+- `CLAUDE.md`가 있으면 같은 안내를 보장한다.
+- 주변 지침은 보존한다.
 
 10. 검증하고 metadata를 기록한다.
 

@@ -15,6 +15,8 @@ DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 GENERATOR = "project-context"
 GENERATOR_VERSION = "2"
+AGENT_START_MARKER = "<!-- project-context:start -->"
+AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 HIGH_SIGNAL_PATHS = {
@@ -66,6 +68,13 @@ def run_git(root: Path, args: list[str]) -> str:
 def git_output(root: Path, args: list[str]) -> str | None:
     output = run_git(root, args).strip()
     return output or None
+
+
+def git_show(root: Path, ref: str, path: str) -> str:
+    output = run_git(root, ["show", f"{ref}:{path}"])
+    if output.startswith("fatal:"):
+        return ""
+    return output
 
 
 def git_head(root: Path) -> tuple[str | None, str | None]:
@@ -210,16 +219,37 @@ def is_generated_doc_path(path: str) -> bool:
     return path == DEFAULT_DOC or path.startswith(f"{DEFAULT_DOC_DIR}/")
 
 
+def strip_agent_reference(text: str) -> str:
+    start = text.find(AGENT_START_MARKER)
+    end = text.find(AGENT_END_MARKER)
+    if start == -1 or end == -1 or start > end:
+        return text.strip()
+    end += len(AGENT_END_MARKER)
+    return (text[:start].rstrip() + "\n" + text[end:].lstrip()).strip()
+
+
+def is_agent_reference_only_change(root: Path, path: str, previous_commit: str | None) -> bool:
+    if path not in {"AGENTS.md", "CLAUDE.md"}:
+        return False
+    old_text = git_show(root, previous_commit, path) if previous_commit else ""
+    new_text = read_text(root / path)
+    return strip_agent_reference(old_text) == strip_agent_reference(new_text)
+
+
 def map_affected_docs(
     docs: list[str],
     source_map: dict[str, list[str]],
     changed_paths: list[str],
     primary_doc: str,
+    root: Path,
+    previous_commit: str | None,
 ) -> tuple[dict[str, list[str]], list[str]]:
     affected: dict[str, list[str]] = {}
     unmapped: list[str] = []
     for changed_path in changed_paths:
         if is_generated_doc_path(changed_path):
+            continue
+        if is_agent_reference_only_change(root, changed_path, previous_commit):
             continue
         matched_docs = []
         for doc in docs:
@@ -262,8 +292,20 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         if isinstance(path, str) and path not in changed_paths:
             changed_paths.append(path)
     generated_doc_changes = [path for path in changed_paths if is_generated_doc_path(path)]
-    source_change_paths = [path for path in changed_paths if not is_generated_doc_path(path)]
-    affected_docs, unmapped_changes = map_affected_docs(docs, source_map, source_change_paths, doc_rel)
+    source_change_paths = [
+        path
+        for path in changed_paths
+        if not is_generated_doc_path(path)
+        and not is_agent_reference_only_change(root, path, previous_commit)
+    ]
+    affected_docs, unmapped_changes = map_affected_docs(
+        docs,
+        source_map,
+        source_change_paths,
+        doc_rel,
+        root,
+        previous_commit,
+    )
     if not (root / doc_rel).exists():
         recommended_action = "create-docs"
     elif affected_docs:
