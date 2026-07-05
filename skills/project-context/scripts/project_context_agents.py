@@ -8,6 +8,7 @@ from pathlib import Path
 START_MARKER = "<!-- project-context:start -->"
 END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
+OPENWIKI_SECTION_RE = re.compile(r"^##\s+OpenWiki\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
 MARKED_SECTION_RE = re.compile(
     rf"{re.escape(START_MARKER)}.*?{re.escape(END_MARKER)}",
     re.DOTALL,
@@ -62,6 +63,8 @@ def replace_marked_section(text: str) -> tuple[str, bool]:
         next_text = "\n\n".join(parts).rstrip() + "\n"
         return next_text, next_text != text
     unmarked_section = PROJECT_CONTEXT_SECTION_RE.search(text)
+    if unmarked_section is None:
+        unmarked_section = OPENWIKI_SECTION_RE.search(text)
     if unmarked_section:
         next_text = (
             text[: unmarked_section.start()].rstrip()

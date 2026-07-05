@@ -60,6 +60,7 @@ SKILL_TRIGGER_TEXT = "$project-context"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
+OPENWIKI_SECTION_RE = re.compile(r"^##\s+OpenWiki\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
 PRIMARY_SOURCE_SUFFIXES = {
     ".c",
     ".cc",
@@ -656,6 +657,11 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
             marked = marker_start != -1 and marker_end != -1 and marker_start < section_match.start() < marker_end
             if not marked:
                 warnings.append(f"{agent_file} has unmarked Project Context section; run project_context_agents.py")
+                break
+        for section_match in OPENWIKI_SECTION_RE.finditer(agent_text):
+            marked = marker_start != -1 and marker_end != -1 and marker_start < section_match.start() < marker_end
+            if not marked:
+                warnings.append(f"{agent_file} has unmarked OpenWiki section; run project_context_agents.py")
                 break
 
     if errors:

@@ -207,6 +207,7 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 - project-context marker section이 있으면 교체한다.
 - marked section이 의미상 current면 공백/문구 정규화만 하려고 수정하지 않는다.
 - unmarked `## Project Context` 섹션이 있으면 내용이 stale하거나 다른 경로를 가리키더라도 marked 표준 section으로 교체한다.
+- unmarked `## OpenWiki` 섹션이 있으면 OpenWiki에서 전환된 stale section으로 보고 marked Project Context section으로 교체한다.
 - project-context marker section이 중복되어 있으면 하나의 표준 section으로 합친다.
 - 주변 지침은 보존한다.
 
@@ -244,6 +245,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command "$R
 - tracked primary source file이 10개 이하인데 context 문서가 3개 초과면 과분할 경고
 - `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - `AGENTS.md`/`CLAUDE.md`의 project-context 안내가 unmarked/stale/중복이면 경고
+- `AGENTS.md`/`CLAUDE.md`에 unmarked OpenWiki section이 남아 있으면 경고
 - marked 안내가 `docs/project-context.md`, `repository overview`, `architecture notes`, `testing guidance`, `source maps`, `follow its links`, `codebase-memory-mcp`, `$project-context`를 모두 담지 않으면 stale로 본다.
 - 현재 HEAD와 `source_commit`이 다르면 stale 경고
 
