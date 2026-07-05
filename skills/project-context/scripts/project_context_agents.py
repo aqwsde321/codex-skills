@@ -41,39 +41,52 @@ def is_semantically_current_section(section: str) -> bool:
     )
 
 
+def is_inside(match: re.Match, ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= match.start() and match.end() <= end for start, end in ranges)
+
+
+def unmarked_reference_sections(text: str, marked_sections: list[re.Match]) -> list[re.Match]:
+    marked_ranges = [(match.start(), match.end()) for match in marked_sections]
+    matches = []
+    for pattern in (PROJECT_CONTEXT_SECTION_RE, OPENWIKI_SECTION_RE):
+        for match in pattern.finditer(text):
+            if not is_inside(match, marked_ranges):
+                matches.append(match)
+    return sorted(matches, key=lambda match: match.start())
+
+
+def replace_sections(text: str, sections: list[re.Match]) -> tuple[str, bool]:
+    parts = []
+    cursor = 0
+    inserted = False
+    for section in sorted(sections, key=lambda match: match.start()):
+        prefix = text[cursor : section.start()].rstrip()
+        if prefix:
+            parts.append(prefix)
+        if not inserted:
+            parts.append(SECTION.rstrip())
+            inserted = True
+        cursor = section.end()
+    suffix = text[cursor:].lstrip()
+    if suffix:
+        parts.append(suffix)
+    next_text = "\n\n".join(parts).rstrip() + "\n"
+    return next_text, next_text != text
+
+
 def replace_marked_section(text: str) -> tuple[str, bool]:
     marked_sections = list(MARKED_SECTION_RE.finditer(text))
+    unmarked_sections = unmarked_reference_sections(text, marked_sections)
     if marked_sections:
-        if len(marked_sections) == 1 and is_semantically_current_section(marked_sections[0].group(0)):
+        if (
+            len(marked_sections) == 1
+            and not unmarked_sections
+            and is_semantically_current_section(marked_sections[0].group(0))
+        ):
             return text, False
-        parts = []
-        cursor = 0
-        inserted = False
-        for marked_section in marked_sections:
-            prefix = text[cursor : marked_section.start()].rstrip()
-            if prefix:
-                parts.append(prefix)
-            if not inserted:
-                parts.append(SECTION.rstrip())
-                inserted = True
-            cursor = marked_section.end()
-        suffix = text[cursor:].lstrip()
-        if suffix:
-            parts.append(suffix)
-        next_text = "\n\n".join(parts).rstrip() + "\n"
-        return next_text, next_text != text
-    unmarked_section = PROJECT_CONTEXT_SECTION_RE.search(text)
-    if unmarked_section is None:
-        unmarked_section = OPENWIKI_SECTION_RE.search(text)
-    if unmarked_section:
-        next_text = (
-            text[: unmarked_section.start()].rstrip()
-            + "\n\n"
-            + SECTION.rstrip()
-            + "\n\n"
-            + text[unmarked_section.end() :].lstrip()
-        ).strip() + "\n"
-        return next_text, next_text != text
+        return replace_sections(text, [*marked_sections, *unmarked_sections])
+    if unmarked_sections:
+        return replace_sections(text, unmarked_sections)
     next_text = text.rstrip()
     if next_text:
         next_text += "\n\n"
