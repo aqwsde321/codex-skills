@@ -17,6 +17,7 @@ OpenWiki와 Graphify를 기본 실행하지 않는다. OpenWiki식으로 source 
 - 기존 문서가 있음: 현재 HEAD, 최근 변경, 깨진 source link를 보고 stale 섹션만 갱신한다.
 - repo가 크거나 docs/API/모듈이 많음: `docs/project-context.md`는 index로 두고 `docs/project-context/*.md`를 추가한다.
 - 실제 구현/버그 수정: context 문서로 큰 그림을 잡고, 코드 위치/호출 관계는 `codebase-memory-mcp`로 확인한다.
+- project-context 생성/갱신 단계에서는 source code를 수정하지 않는다. 허용 write는 `docs/project-context.md`, `docs/project-context/`, top-level `AGENTS.md`/`CLAUDE.md` 안내 섹션뿐이다.
 
 ## 설치 확인
 
@@ -87,6 +88,7 @@ CLI fallback:
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
 - `.env`, private key, token, credential 파일은 읽지 않는다. 필요하면 설정 파일 존재와 non-secret setup 위치만 문서화한다.
 - 기존 `docs/project-context.md`, `docs/project-context/`, README/runbook/docs tree
+- 기존 README/docs/runbook은 primary source로 취급한다. 유효하면 요약하고 링크하며, 통째로 복제하지 않는다.
 - `project_context_update.py plan`의 affected/unmapped 변경
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
 - repo root에서 `**/*` 전체 훑기는 피한다. `rg --files`와 디렉터리/확장자 기준 targeted read를 쓴다.
