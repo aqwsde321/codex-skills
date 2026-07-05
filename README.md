@@ -32,7 +32,7 @@
 | `diagnose` | `20진단`, `진단`, `디버깅`, `버그진단`, `원인분석`, `재현부터` | 버그/성능 문제를 추측으로 고치지 않고 재현 루프, 가설, 계측, 회귀 테스트 순서로 진단한다. |
 | `tdd` | `30구현`, `TDD`, `테스트우선`, `테스트 먼저`, `red-green-refactor` | 도메인 규칙과 invariant를 확인한 뒤 공개 인터페이스를 통한 행동 테스트를 먼저 쓰고 작은 수직 슬라이스로 구현한다. |
 | `zoom-out` | `00큰그림`, `큰그림`, `전체맥락`, `상위맥락`, `구조파악` | 낯선 코드 영역의 모듈, 호출자, 책임 경계, 데이터 흐름을 구현 전에 정리한다. |
-| `project-context` | `$project-context`, `프로젝트 컨텍스트 세팅`, `Codex 문서화`, `OpenWiki 대체` | `codebase-memory-mcp`와 Codex-native `docs/project-context.md`로 repo 온보딩 문서를 생성/갱신한다. |
+| `project-context` | `$project-context`, `프로젝트 컨텍스트 세팅`, `Codex 문서화`, `OpenWiki 대체`, `wiki 생성` | `codebase-memory-mcp`와 Codex-native source-grounded `docs/project-context.md`로 repo 온보딩 문서를 생성/갱신한다. |
 | `review-fix-test` | `40리뷰`, `변경리뷰`, `커밋리뷰`, `동시리뷰`, `반복리뷰`, `반복변경리뷰`, `반복커밋리뷰`, `과설계리뷰`, `단순화리뷰`, `삭제리뷰` | 현재 변경분, 마지막 커밋, 또는 둘 다를 Core Risk, Standards, Spec, Simplicity 축으로 리뷰/수정/검증한다. |
 | `simplification-debt` | `단순화부채`, `부채리뷰`, `단순화 부채`, `ponytail-debt` | `ponytail:` 주석을 모아 의도적 단순화의 한계와 재검토 트리거를 점검한다. |
 | `solution-capture` | `50기록`, `해결기록`, `해결지식`, `지식축적`, `컴파운드`, `문제 해결 기록` | 해결한 문제, 디버깅 결과, 도구 세팅, 프로젝트 고유 패턴을 `docs/solutions/`에 재사용 가능한 지식으로 기록한다. |
@@ -69,8 +69,10 @@ codex-skills/
     │       └── openai.yaml
     ├── project-context/
     │   ├── SKILL.md
-    │   └── agents/
-    │       └── openai.yaml
+    │   ├── agents/
+    │   │   └── openai.yaml
+    │   └── scripts/
+    │       └── validate_project_context.py
     ├── review-fix-test/
     │   ├── SKILL.md
     │   └── agents/
