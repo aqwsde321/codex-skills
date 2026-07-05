@@ -1,6 +1,6 @@
 # Codex Skills
 
-개인 또는 팀에서 재사용할 수 있는 Codex skill 모음이다. 사용자용 번호 호출어 6개와 내부 workflow skill을 포함한다.
+개인 또는 팀에서 재사용할 수 있는 Codex skill 모음이다. 사용자용 번호 호출어 6개와 내부 workflow/helper skill을 포함한다.
 
 ## Primary Shortcuts
 
@@ -33,6 +33,7 @@
 | `tdd` | `30구현`, `TDD`, `테스트우선`, `테스트 먼저`, `red-green-refactor` | 도메인 규칙과 invariant를 확인한 뒤 공개 인터페이스를 통한 행동 테스트를 먼저 쓰고 작은 수직 슬라이스로 구현한다. |
 | `zoom-out` | `00큰그림`, `큰그림`, `전체맥락`, `상위맥락`, `구조파악` | 낯선 코드 영역의 모듈, 호출자, 책임 경계, 데이터 흐름을 구현 전에 정리한다. |
 | `review-fix-test` | `40리뷰`, `변경리뷰`, `커밋리뷰`, `동시리뷰`, `반복리뷰`, `반복변경리뷰`, `반복커밋리뷰`, `과설계리뷰`, `단순화리뷰`, `삭제리뷰` | 현재 변경분, 마지막 커밋, 또는 둘 다를 Core Risk, Standards, Spec, Simplicity 축으로 리뷰/수정/검증한다. |
+| `simplification-debt` | `단순화부채`, `부채리뷰`, `단순화 부채`, `ponytail-debt` | `ponytail:` 주석을 모아 의도적 단순화의 한계와 재검토 트리거를 점검한다. |
 | `solution-capture` | `50기록`, `해결기록`, `해결지식`, `지식축적`, `컴파운드`, `문제 해결 기록` | 해결한 문제, 디버깅 결과, 도구 세팅, 프로젝트 고유 패턴을 `docs/solutions/`에 재사용 가능한 지식으로 기록한다. |
 
 ## Repository Layout
@@ -69,6 +70,12 @@ codex-skills/
     │   ├── SKILL.md
     │   └── agents/
     │       └── openai.yaml
+    ├── simplification-debt/
+    │   ├── SKILL.md
+    │   ├── agents/
+    │   │   └── openai.yaml
+    │   └── scripts/
+    │       └── collect_simplification_debt.py
     ├── solution-capture/
     │   ├── SKILL.md
     │   └── agents/
@@ -136,9 +143,12 @@ TDD
 API리뷰
 커밋리뷰
 해결기록
+단순화부채
 ```
 
 `40리뷰`와 `변경리뷰`는 현재 변경분을 기본 대상으로 한다. 마지막 커밋을 보려면 `커밋리뷰`, 커밋과 현재 변경분을 함께 보려면 `동시리뷰`, 수정할 게 없을 때까지 반복하려면 `반복리뷰`를 직접 쓸 수 있다. `커밋리뷰`는 후속 수정이 생기면 기본적으로 수정 커밋까지 만든다. 요구사항 문서가 있으면 `40리뷰 spec=docs/features/example.md`처럼 넘길 수 있다.
+
+`단순화부채`는 `ponytail:` 주석을 스캔해 의도적으로 단순하게 둔 구현의 한계와 재검토 트리거를 보고한다. 기본은 읽기 전용 보고이며, 사용자가 요청하면 ledger를 Markdown 파일로 저장한다.
 
 `plan-grill`, `feature-flow-review`, `api-design-review`, `diagnose`, `tdd`, `review-fix-test`가 재사용 가능한 학습을 만든 경우에는 완료 보고에서 `$solution-capture`를 제안한다. 사용자가 확인하기 전에는 자동으로 기록하지 않는다.
 
