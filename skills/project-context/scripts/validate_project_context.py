@@ -52,6 +52,7 @@ CONTEXT_DOC_TEXT = "docs/project-context.md"
 REPOSITORY_OVERVIEW_TEXT = "repository overview"
 ARCHITECTURE_NOTES_TEXT = "architecture notes"
 TESTING_GUIDANCE_TEXT = "testing guidance"
+SOURCE_MAPS_TEXT = "source maps"
 FOLLOW_LINKS_TEXT = "follow its links"
 CODEBASE_MEMORY_TEXT = "codebase-memory-mcp"
 SKILL_TRIGGER_TEXT = "$project-context"
@@ -533,6 +534,7 @@ def is_semantically_current_agent_section(section: str) -> bool:
         and REPOSITORY_OVERVIEW_TEXT in section
         and ARCHITECTURE_NOTES_TEXT in section
         and TESTING_GUIDANCE_TEXT in section
+        and SOURCE_MAPS_TEXT in section
         and FOLLOW_LINKS_TEXT in section
         and CODEBASE_MEMORY_TEXT in section
         and SKILL_TRIGGER_TEXT in section
