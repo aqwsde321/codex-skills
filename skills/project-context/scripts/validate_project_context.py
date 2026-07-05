@@ -35,6 +35,9 @@ SECRET_ASSIGNMENT_RE = re.compile(
     r"[A-Za-z0-9_./+=:@-]{12,}"
 )
 CONTEXT_DOC_TEXT = "docs/project-context.md"
+REPOSITORY_OVERVIEW_TEXT = "repository overview"
+ARCHITECTURE_NOTES_TEXT = "architecture notes"
+TESTING_GUIDANCE_TEXT = "testing guidance"
 FOLLOW_LINKS_TEXT = "follow its links"
 CODEBASE_MEMORY_TEXT = "codebase-memory-mcp"
 SKILL_TRIGGER_TEXT = "$project-context"
@@ -509,6 +512,9 @@ def marked_agent_section(text: str) -> str | None:
 def is_semantically_current_agent_section(section: str) -> bool:
     return (
         CONTEXT_DOC_TEXT in section
+        and REPOSITORY_OVERVIEW_TEXT in section
+        and ARCHITECTURE_NOTES_TEXT in section
+        and TESTING_GUIDANCE_TEXT in section
         and FOLLOW_LINKS_TEXT in section
         and CODEBASE_MEMORY_TEXT in section
         and SKILL_TRIGGER_TEXT in section

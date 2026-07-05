@@ -21,6 +21,7 @@ Start here:
 
 - [Project context](docs/project-context.md)
 
+Project context includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source references.
 When working in this repository, read the project context first, follow its links to relevant architecture, workflow, domain, operation, and testing notes, then use `codebase-memory-mcp` for code location, call relationships, and impact analysis. If the context is stale or missing, run `$project-context` to refresh it.
 {END_MARKER}
 """
@@ -29,6 +30,9 @@ When working in this repository, read the project context first, follow its link
 def is_semantically_current_section(section: str) -> bool:
     return (
         "docs/project-context.md" in section
+        and "repository overview" in section
+        and "architecture notes" in section
+        and "testing guidance" in section
         and "follow its links" in section
         and "codebase-memory-mcp" in section
         and "$project-context" in section
