@@ -18,6 +18,7 @@ SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MU
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
@@ -63,6 +64,13 @@ def iter_relative_links(markdown: str):
         yield target
 
 
+def iter_markdown_links(markdown: str):
+    for match in LINK_RE.finditer(markdown):
+        target = clean_target(match.group(1))
+        if target:
+            yield target
+
+
 def discover_docs(root: Path, primary_doc: str) -> list[str]:
     docs = [primary_doc]
     doc_dir = root / DEFAULT_DOC_DIR
@@ -99,6 +107,18 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
 
     markdown = doc_path.read_text(encoding="utf-8", errors="replace")
     body = FRONTMATTER_RE.sub("", markdown).strip()
+    absolute_links = [
+        link
+        for link in iter_markdown_links(markdown)
+        if link.startswith("/") and not is_external_target(link)
+    ]
+    for link in absolute_links:
+        errors.append(f"{doc_rel}: absolute link path is not allowed: {link}")
+
+    commit_hashes = set(COMMIT_HASH_RE.findall(body))
+    if len(commit_hashes) >= 3:
+        warnings.append(f"{doc_rel}: persistent commit hash list suspected; keep git evidence in update metadata or temporary plan")
+
     source_commit_match = SOURCE_COMMIT_RE.search(markdown)
     if require_metadata and not source_commit_match:
         errors.append(f"{doc_rel}: missing metadata: source_commit")

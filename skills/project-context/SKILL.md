@@ -154,6 +154,7 @@ mode: single-page
 - 초기 생성은 특별한 이유가 없으면 전체 8문서 이하로 유지한다.
 - 얇은 문서, 스텁, source map뿐인 문서는 만들지 않는다. 넓은 문서의 heading으로 합친다.
 - 절대경로, secret, private URL, credential은 쓰지 않는다.
+- persistent commit hash 목록은 문서에 남기지 않는다. 특정 historical decision 설명에 꼭 필요할 때만 짧게 언급한다.
 - 확인하지 못한 내용은 `확인 필요`로 표시한다.
 - 파일별 inventory를 길게 나열하지 말고 작업 판단에 필요한 구조만 쓴다.
 - 기존 문서가 있으면 전체 재작성보다 stale 섹션만 갱신한다.
@@ -199,6 +200,8 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - metadata의 `source_commit` 존재
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
+- Markdown link target에 host absolute path가 있으면 실패
+- 본문에 commit hash 목록이 많으면 경고
 - 모든 context 문서에 `## 근거` 섹션 존재
 - multi-page 하위 문서가 index 문서로 링크
 - `docs/project-context/_plan.md`가 남아 있으면 실패
