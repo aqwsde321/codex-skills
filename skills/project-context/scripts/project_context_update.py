@@ -16,7 +16,7 @@ DEFAULT_METADATA = "docs/project-context/.metadata.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "5"
+GENERATOR_VERSION = "6"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -693,12 +693,23 @@ def record_metadata(
     run_command: str,
     model: str,
     if_changed: bool,
+    before_hash: str | None,
 ) -> dict:
     full_head, short_head = git_head(root)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
     content_hash = docs_content_hash(root, docs)
     previous_metadata = read_json(root / metadata_rel) or {}
+    if if_changed and before_hash and before_hash == content_hash:
+        return {
+            "skipped": True,
+            "reason": "content_hash unchanged from before snapshot",
+            "metadata_path": metadata_rel,
+            "source_commit": previous_metadata.get("source_commit") or previous_metadata.get("gitHead"),
+            "source_commit_short": previous_metadata.get("source_commit_short"),
+            "docs": docs,
+            "content_hash": content_hash,
+        }
     if if_changed and previous_metadata.get("content_hash") == content_hash:
         return {
             "skipped": True,
@@ -733,7 +744,7 @@ def record_metadata(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
-    parser.add_argument("command", choices=["plan", "write-plan", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; record writes metadata after docs update.")
+    parser.add_argument("command", choices=["plan", "write-plan", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; snapshot prints the current docs content hash; record writes metadata after docs update.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Primary doc path. Default: {DEFAULT_DOC}")
     parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
@@ -741,6 +752,7 @@ def main() -> int:
     parser.add_argument("--run-command", choices=["init", "update"], default="update", help="OpenWiki-compatible run command stored in metadata.")
     parser.add_argument("--model", default="codex", help="OpenWiki-compatible model label stored in metadata.")
     parser.add_argument("--if-changed", action="store_true", help="Do not rewrite metadata when documentation content hash is unchanged.")
+    parser.add_argument("--before-hash", help="Docs content hash captured before the run. With --if-changed, metadata is skipped when it still matches.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     args = parser.parse_args()
 
@@ -768,6 +780,15 @@ def main() -> int:
             print(format_plan(plan))
         return 0
 
+    if args.command == "snapshot":
+        docs = discover_docs(root, args.doc)
+        content_hash = docs_content_hash(root, docs)
+        if args.json:
+            print(json.dumps({"content_hash": content_hash, "docs": docs}, indent=2, ensure_ascii=False))
+        else:
+            print(content_hash)
+        return 0
+
     if (root / args.plan_path).exists():
         print(f"temporary plan must be deleted before recording metadata: {args.plan_path}", file=sys.stderr)
         return 1
@@ -783,7 +804,7 @@ def main() -> int:
         print(f"metadata path must not be a symlink: {args.metadata}", file=sys.stderr)
         return 1
 
-    metadata = record_metadata(root, args.doc, args.metadata, args.run_command, args.model, args.if_changed)
+    metadata = record_metadata(root, args.doc, args.metadata, args.run_command, args.model, args.if_changed, args.before_hash)
     if args.json:
         print(json.dumps(metadata, indent=2, ensure_ascii=False))
     elif metadata.get("skipped"):

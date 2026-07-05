@@ -50,6 +50,7 @@ ls docs/project-context.md AGENTS.md README.md 2>/dev/null
 2. 이전 성공 갱신 이후 변경 계획을 만든다. 이 계획은 LangChain OpenWiki의 `gitHead`/`updatedAt` 기반 update run을 축소한 것이다.
 
 ```bash
+PROJECT_CONTEXT_BEFORE_HASH="$(python3 <skill-dir>/scripts/project_context_update.py snapshot .)"
 python3 <skill-dir>/scripts/project_context_update.py plan .
 ```
 
@@ -66,6 +67,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 - 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다.
 - `last_update_metadata`: OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`만 보여준다. 이 값으로 이전 run의 성격과 기준 commit을 확인한다.
+- `snapshot`: OpenWiki처럼 문서 작성 전 content hash를 잡는다. 완료 후 `record --before-hash <hash> --if-changed`로 실제 문서 변경이 있을 때만 metadata를 기록한다.
 
 3. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.
 
@@ -193,7 +195,7 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 ```bash
 rm -f docs/project-context/_plan.md
 python3 <skill-dir>/scripts/validate_project_context.py .
-python3 <skill-dir>/scripts/project_context_update.py record . --run-command update --if-changed
+python3 <skill-dir>/scripts/project_context_update.py record . --run-command update --if-changed --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
 ```
 
 검증 기준:
@@ -230,6 +232,7 @@ metadata 기록 규칙:
 - `affected_docs`/`unmapped_changes`의 파일은 필요한 만큼 다시 읽어 현재 코드 동작을 확인한 뒤 문서를 고친다. 커밋 메시지나 diff 목록만으로 문서를 갱신하지 않는다.
 - 새 문서 생성 뒤에는 `--run-command init`, 기존 문서 갱신 뒤에는 `--run-command update`를 쓴다.
 - `record --if-changed`는 실제 문서 내용 hash가 바뀐 경우에만 metadata를 쓴다.
+- `record --if-changed --before-hash <snapshot-hash>`는 OpenWiki의 before/after snapshot 비교와 같은 기준이다. hash가 같으면 metadata를 쓰지 않는다.
 - `record`는 `docs/project-context.md`가 없으면 실패한다.
 - `record`는 `_plan.md`가 남아 있으면 실패한다.
 - `record`와 `validate`는 context 문서, context 문서 디렉터리, metadata symlink를 허용하지 않는다. source-grounded 문서는 repo 안 regular file이어야 한다.
