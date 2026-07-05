@@ -64,6 +64,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `unmapped_changes`: 기존 문서가 설명하지 않는 변경이다. 새 문서가 필요한지, 기존 문서의 근거 링크를 보강할지 판단한다.
 - `git status --short`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
+- 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다.
 
 3. `codebase-memory-mcp` 인덱스를 확인하고 필요하면 갱신한다. MCP tool 이름과 schema는 현재 세션의 `tools/list`를 우선한다.
 

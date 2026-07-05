@@ -149,6 +149,10 @@ def read_json(path: Path) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def is_structured_update_metadata(metadata: dict) -> bool:
+    return all(isinstance(metadata.get(key), str) and metadata.get(key).strip() for key in ("updatedAt", "command", "model"))
+
+
 def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
     markdown = read_text(root / doc_rel)
     match = SOURCE_COMMIT_RE.search(markdown)
@@ -157,15 +161,12 @@ def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
 
 def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str | None, str]:
     metadata = read_json(root / metadata_rel)
-    if metadata:
-        for key in ("source_commit", "gitHead", "git_head"):
+    if metadata and is_structured_update_metadata(metadata):
+        for key in ("gitHead", "source_commit", "git_head"):
             value = metadata.get(key)
             if isinstance(value, str) and value.strip() and git_commit_exists(root, value.strip()):
                 return value.strip(), None, metadata_rel
-        for key in ("updated_at", "updatedAt"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return None, value.strip(), metadata_rel
+        return None, metadata["updatedAt"].strip(), metadata_rel
     source_commit = read_source_commit_from_doc(root, doc_rel)
     if source_commit and git_commit_exists(root, source_commit):
         return source_commit, None, doc_rel
