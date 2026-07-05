@@ -201,7 +201,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - metadata의 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model` 구조가 유효
 - metadata의 `gitHead`가 현재 git에서 조회 가능한 commit
 - metadata의 `source_commit`이 있으면 `gitHead`와 같은 commit
-- metadata의 `content_hash`가 volatile frontmatter를 제외한 현재 context 문서 내용과 일치
+- metadata의 `content_hash`가 volatile frontmatter, metadata, `_plan.md`를 제외한 현재 context 문서/파일/디렉터리 snapshot과 일치
 - 문서 frontmatter의 `source_commit`이 현재 git에서 조회 가능한 commit
 - `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
@@ -225,7 +225,7 @@ metadata 기록 규칙:
 - `record`는 `docs/project-context.md`가 없으면 실패한다.
 - `record`는 `_plan.md`가 남아 있으면 실패한다.
 - `record`는 `docs/project-context/.metadata.json`에 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`과 현재 commit, 문서 목록, source link map, content hash를 저장한다.
-- content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter를 제외한 실제 문서 내용 기준이다.
+- content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter와 metadata, `_plan.md`를 제외한 context 문서/파일/디렉터리 snapshot 기준이다.
 
 ## 작업 전 내부 절차
 

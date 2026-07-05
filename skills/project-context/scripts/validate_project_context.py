@@ -13,6 +13,7 @@ DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
+SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
 MAX_INITIAL_DOCS = 8
 MIN_SUBPAGE_BODY_CHARS = 500
 MIN_SINGLE_FILE_SECTION_CHARS = 1500
@@ -130,16 +131,48 @@ def stable_doc_bytes(path: Path) -> bytes:
     return stable.encode("utf-8")
 
 
+def snapshot_file_bytes(path: Path) -> bytes | None:
+    try:
+        if path.suffix == ".md":
+            return stable_doc_bytes(path)
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def docs_content_hash(root: Path, docs: list[str]) -> str:
     digest = hashlib.sha256()
-    for doc in docs:
-        path = root / doc
-        if not path.exists() or not path.is_file():
-            continue
-        digest.update(doc.encode("utf-8"))
+    seen_files: set[str] = set()
+
+    def add_file(rel: str, path: Path) -> None:
+        if rel in seen_files or rel in SNAPSHOT_EXCLUDED_PATHS:
+            return
+        content = snapshot_file_bytes(path)
+        if content is None:
+            return
+        seen_files.add(rel)
+        digest.update(f"file:{rel}".encode("utf-8"))
         digest.update(b"\0")
-        digest.update(stable_doc_bytes(path))
+        digest.update(content)
         digest.update(b"\0")
+
+    primary_doc = docs[0] if docs else DEFAULT_DOC
+    primary_path = root / primary_doc
+    if primary_path.is_file():
+        add_file(primary_doc, primary_path)
+
+    doc_dir = root / DEFAULT_DOC_DIR
+    if doc_dir.exists() and doc_dir.is_dir():
+        paths = sorted(doc_dir.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+        for path in paths:
+            rel = path.relative_to(root).as_posix()
+            if rel in SNAPSHOT_EXCLUDED_PATHS:
+                continue
+            if path.is_dir():
+                digest.update(f"dir:{rel}".encode("utf-8"))
+                digest.update(b"\0")
+            elif path.is_file():
+                add_file(rel, path)
     return digest.hexdigest()
 
 
