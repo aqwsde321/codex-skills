@@ -505,6 +505,9 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
         value = metadata.get(key)
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{DEFAULT_METADATA}: missing OpenWiki metadata field: {key}")
+    updated_at = metadata.get("updatedAt")
+    if isinstance(updated_at, str) and updated_at.strip() and not UPDATED_AT_RE.match(updated_at):
+        warnings.append(f"{DEFAULT_METADATA}: updatedAt should be an ISO-8601 timestamp")
 
     command = metadata.get("command")
     if isinstance(command, str) and command.strip() and command not in {"init", "update"}:
