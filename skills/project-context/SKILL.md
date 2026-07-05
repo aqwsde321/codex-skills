@@ -97,11 +97,10 @@ CLI fallback:
 OpenWiki처럼 최종 작성 전 임시 계획을 만든다.
 
 ```bash
-mkdir -p docs/project-context
-$EDITOR docs/project-context/_plan.md
+python3 <skill-dir>/scripts/project_context_update.py write-plan .
 ```
 
-`_plan.md`에는 작성/갱신할 문서, 각 문서의 source evidence, 남은 질문만 둔다. 최종 완료 전 반드시 삭제한다.
+`_plan.md`에는 작성/갱신할 문서, 각 문서의 source evidence, 남은 질문만 둔다. 생성된 초안을 읽고 필요한 만큼 고친다. 최종 완료 전 반드시 삭제한다.
 
 단일 문서 기본 구조:
 

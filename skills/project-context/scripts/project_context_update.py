@@ -13,6 +13,7 @@ from urllib.parse import unquote
 DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
+DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 GENERATOR = "project-context"
 GENERATOR_VERSION = "2"
 AGENT_START_MARKER = "<!-- project-context:start -->"
@@ -463,6 +464,73 @@ def format_plan(plan: dict) -> str:
     return "\n".join(lines)
 
 
+def format_temp_plan(plan: dict) -> str:
+    lines = [
+        "# Project Context Draft Plan",
+        "",
+        "Delete this file before finishing the project-context run.",
+        "",
+        "## Run Summary",
+        "",
+        f"- current_head: {plan.get('current_head_short') or plan.get('current_head') or '(unknown)'}",
+        f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
+        f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
+        f"- recommended_action: {plan.get('recommended_action')}",
+        "",
+        "## Intended Docs",
+        "",
+    ]
+    for doc in plan.get("docs", []):
+        lines.append(f"- {doc}")
+    if not plan.get("docs"):
+        lines.append("- docs/project-context.md")
+
+    lines.extend(["", "## Docs Impact Plan", ""])
+    affected_docs = plan.get("affected_docs", {})
+    if affected_docs:
+        for doc, paths in affected_docs.items():
+            lines.append(f"- doc: {doc}")
+            for path in paths:
+                lines.append(f"  - source change: {path}")
+                lines.append("    - edit needed: confirm changed behavior and update only stale claims")
+                lines.append("    - why: linked source changed since the previous successful run")
+    else:
+        lines.append("- (none)")
+
+    lines.extend(["", "## Unmapped Changes", ""])
+    unmapped = plan.get("unmapped_changes", [])
+    if unmapped:
+        for path in unmapped:
+            lines.append(f"- source change: {path}")
+            lines.append("  - docs affected: confirm whether a new section/source link is needed")
+            lines.append("  - why: no existing context doc links to this source")
+    else:
+        lines.append("- (none)")
+
+    lines.extend(["", "## Source Evidence", ""])
+    doc_sources = plan.get("doc_sources", {})
+    if doc_sources:
+        for doc, sources in doc_sources.items():
+            lines.append(f"- {doc}")
+            if sources:
+                for source in sources:
+                    lines.append(f"  - {source}")
+            else:
+                lines.append("  - (none yet)")
+    else:
+        lines.append("- (none yet)")
+
+    lines.extend(["", "## Remaining Questions", "", "- (none yet)"])
+    return "\n".join(lines) + "\n"
+
+
+def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
+    plan_path = root / plan_rel
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_text(format_temp_plan(plan), encoding="utf-8")
+    return plan_path
+
+
 def record_metadata(
     root: Path,
     doc_rel: str,
@@ -510,10 +578,11 @@ def record_metadata(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
-    parser.add_argument("command", choices=["plan", "record"], help="plan prints update impact; record writes metadata after docs update.")
+    parser.add_argument("command", choices=["plan", "write-plan", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; record writes metadata after docs update.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Primary doc path. Default: {DEFAULT_DOC}")
     parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
+    parser.add_argument("--plan-path", default=DEFAULT_TEMP_PLAN, help=f"Temporary draft plan path. Default: {DEFAULT_TEMP_PLAN}")
     parser.add_argument("--run-command", choices=["init", "update"], default="update", help="OpenWiki-compatible run command stored in metadata.")
     parser.add_argument("--model", default="codex", help="OpenWiki-compatible model label stored in metadata.")
     parser.add_argument("--if-changed", action="store_true", help="Do not rewrite metadata when documentation content hash is unchanged.")
@@ -525,8 +594,16 @@ def main() -> int:
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
 
-    if args.command == "plan":
+    if args.command in {"plan", "write-plan"}:
         plan = build_plan(root, args.doc, args.metadata)
+        if args.command == "write-plan":
+            plan_path = write_temp_plan(root, args.plan_path, plan)
+            if args.json:
+                print(json.dumps({"plan_path": args.plan_path, "recommended_action": plan.get("recommended_action")}, indent=2, ensure_ascii=False))
+            else:
+                print(f"draft plan written: {plan_path.relative_to(root).as_posix()}")
+                print(f"recommended_action: {plan.get('recommended_action')}")
+            return 0
         if args.json:
             print(json.dumps(plan, indent=2, ensure_ascii=False))
         else:
