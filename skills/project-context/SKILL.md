@@ -77,6 +77,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `git status --short --untracked-files=all`, `git rev-parse HEAD`: 현재 작업트리 dirty/untracked 상태와 기준 source head를 확인한다. status 변경도 영향 계산에 포함한다.
 - `git log ... --name-status --oneline`: 변경 파일뿐 아니라 커밋 단위의 의도/묶음을 확인한다. 문서 갱신 이유는 이 커밋 증거와 실제 코드 확인 둘 다로 판단한다.
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
+- helper script의 `--doc`, `--metadata`, `--plan-path` 값은 repo-relative path만 쓴다. absolute path나 `..` parent traversal은 거부된다.
 - 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다. `docs/project-context/.metadata.json`이 없으면 OpenWiki 호환 `openwiki/.last-update.json`을 fallback으로 읽는다.
 - `last_update_metadata`: OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`만 보여준다. `last_update_metadata_source`로 어느 metadata를 기준으로 삼았는지 확인한다.
 - `snapshot`: OpenWiki처럼 문서 작성 전 content hash를 잡는다. 완료 후 `record --before-hash <hash> --if-changed`로 실제 문서 변경이 있을 때만 metadata를 기록한다.
@@ -259,6 +260,7 @@ metadata 기록 규칙:
 - `record`는 `docs/project-context.md`가 없으면 실패한다.
 - `record`는 `_plan.md`가 남아 있으면 실패한다.
 - `record`와 `validate`는 context 문서, context 문서 디렉터리, metadata symlink를 허용하지 않는다. source-grounded 문서는 repo 안 regular file이어야 한다.
+- helper script path option은 repo-relative regular path여야 하며 absolute path와 `..` parent traversal은 실패한다.
 - `record`는 `docs/project-context/.metadata.json`에 OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`과 현재 commit, 문서 목록, source link map, content hash를 저장한다.
 - content hash는 `source_commit`, `updated_at` 같은 volatile frontmatter와 metadata, `_plan.md`를 제외한 context regular file/directory snapshot 기준이다.
 

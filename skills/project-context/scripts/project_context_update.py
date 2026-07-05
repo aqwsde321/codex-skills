@@ -170,6 +170,17 @@ def read_json(path: Path) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def validate_repo_relative_path(label: str, value: str) -> str | None:
+    path = Path(value)
+    if value.strip() == "":
+        return f"{label} must not be empty"
+    if path.is_absolute():
+        return f"{label} must be relative to the repository root: {value}"
+    if ".." in path.parts:
+        return f"{label} must not contain parent directory traversal: {value}"
+    return None
+
+
 def is_structured_update_metadata(metadata: dict) -> bool:
     return all(isinstance(metadata.get(key), str) and metadata.get(key).strip() for key in ("updatedAt", "command", "model"))
 
@@ -792,6 +803,15 @@ def main() -> int:
     if not root.exists() or not root.is_dir():
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
+    for label, value in (
+        ("--doc", args.doc),
+        ("--metadata", args.metadata),
+        ("--plan-path", args.plan_path),
+    ):
+        path_error = validate_repo_relative_path(label, value)
+        if path_error:
+            print(path_error, file=sys.stderr)
+            return 2
 
     if args.command in {"plan", "write-plan"}:
         plan = build_plan(root, args.doc, args.metadata)

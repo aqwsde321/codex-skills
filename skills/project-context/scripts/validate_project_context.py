@@ -201,6 +201,17 @@ def read_json(path: Path) -> tuple[dict | None, str | None]:
     return value, None
 
 
+def validate_repo_relative_path(label: str, value: str) -> str | None:
+    path = Path(value)
+    if value.strip() == "":
+        return f"{label} must not be empty"
+    if path.is_absolute():
+        return f"{label} must be relative to the repository root: {value}"
+    if ".." in path.parts:
+        return f"{label} must not contain parent directory traversal: {value}"
+    return None
+
+
 def stable_doc_bytes(path: Path) -> bytes:
     markdown = path.read_text(encoding="utf-8", errors="replace")
     if not markdown.startswith("---\n"):
@@ -615,6 +626,10 @@ def main() -> int:
     root = Path(args.repo_root).resolve()
     if not root.exists() or not root.is_dir():
         print(f"repo root is not a directory: {root}", file=sys.stderr)
+        return 2
+    doc_error = validate_repo_relative_path("--doc", args.doc)
+    if doc_error:
+        print(doc_error, file=sys.stderr)
         return 2
 
     code, messages, warnings = validate(root, args.doc)
