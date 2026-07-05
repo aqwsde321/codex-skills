@@ -26,6 +26,8 @@ COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 VOLATILE_FRONTMATTER_RE = re.compile(r"^(source_commit|updated_at|updatedAt):\s*.*$", re.MULTILINE)
 HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/var/folders)/[^\s)`>]+")
 CONTEXT_DOC_TEXT = "docs/project-context.md"
+CODEBASE_MEMORY_TEXT = "codebase-memory-mcp"
+SKILL_TRIGGER_TEXT = "$project-context"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
@@ -412,6 +414,22 @@ def validate_section_directories(root: Path, docs: list[str]) -> tuple[list[str]
     return errors, warnings
 
 
+def marked_agent_section(text: str) -> str | None:
+    start = text.find(AGENT_START_MARKER)
+    end = text.find(AGENT_END_MARKER)
+    if start == -1 or end == -1 or start > end:
+        return None
+    return text[start : end + len(AGENT_END_MARKER)]
+
+
+def is_semantically_current_agent_section(section: str) -> bool:
+    return (
+        CONTEXT_DOC_TEXT in section
+        and CODEBASE_MEMORY_TEXT in section
+        and SKILL_TRIGGER_TEXT in section
+    )
+
+
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -454,6 +472,9 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
             warnings.append(f"{agent_file} does not mention {CONTEXT_DOC_TEXT}")
         if start_count != 1 or end_count != 1:
             warnings.append(f"{agent_file} project context reference should have exactly one marked section")
+        marked_section = marked_agent_section(agent_text)
+        if marked_section is not None and not is_semantically_current_agent_section(marked_section):
+            warnings.append(f"{agent_file} project context reference is stale; run project_context_agents.py")
         marker_start = agent_text.find(AGENT_START_MARKER)
         marker_end = agent_text.find(AGENT_END_MARKER)
         for section_match in PROJECT_CONTEXT_SECTION_RE.finditer(agent_text):

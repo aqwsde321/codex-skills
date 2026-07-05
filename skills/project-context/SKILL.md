@@ -220,6 +220,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - 얇은 하위 문서, 짧은 single-file section directory, 8개 초과 문서는 경고
 - `AGENTS.md`가 있으면 `docs/project-context.md` 안내 존재 여부 확인
 - `AGENTS.md`/`CLAUDE.md`의 project-context 안내가 unmarked/stale/중복이면 경고
+- marked 안내가 `docs/project-context.md`, `codebase-memory-mcp`, `$project-context`를 모두 담지 않으면 stale로 본다.
 - 현재 HEAD와 `source_commit`이 다르면 stale 경고
 
 metadata 기록 규칙:
