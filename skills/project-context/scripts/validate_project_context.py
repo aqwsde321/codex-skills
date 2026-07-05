@@ -411,7 +411,7 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
         errors.append(f"invalid update metadata: {DEFAULT_METADATA}: {read_error}")
         return errors, warnings
 
-    for key in ("updatedAt", "command", "model", "gitHead"):
+    for key in ("updatedAt", "command", "model"):
         value = metadata.get(key)
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{DEFAULT_METADATA}: missing OpenWiki metadata field: {key}")
@@ -426,6 +426,8 @@ def validate_metadata(root: Path, docs: list[str]) -> tuple[list[str], list[str]
         resolved_git_head = git_resolve_commit(root, git_head_ref.strip())
         if not resolved_git_head:
             errors.append(f"{DEFAULT_METADATA}: gitHead does not exist in git: {git_head_ref.strip()}")
+    else:
+        warnings.append(f"{DEFAULT_METADATA}: missing gitHead; update planning will fall back to updatedAt")
 
     source_commit_ref = metadata.get("source_commit")
     if source_commit_ref is not None:
