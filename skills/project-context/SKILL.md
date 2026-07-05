@@ -80,10 +80,18 @@ CLI fallback:
 
 - `AGENTS.md`, `README.md`, `package.json`, `pnpm-lock.yaml`, `build.gradle`, `pom.xml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`, `justfile`, Docker/CI/config 파일
 - `.env`, private key, token, credential 파일은 읽지 않는다. 필요하면 설정 파일 존재와 non-secret setup 위치만 문서화한다.
-- 기존 `docs/project-context.md`와 `docs/project-context/`
+- 기존 `docs/project-context.md`, `docs/project-context/`, README/runbook/docs tree
 - `project_context_update.py plan`의 affected/unmapped 변경
 - MCP `get_architecture`, `search_graph`, `search_code`, `trace_path`
 - repo root에서 `**/*` 전체 훑기는 피한다. `rg --files`와 디렉터리/확장자 기준 targeted read를 쓴다.
+- 기존 문서가 코드/git 증거와 충돌하면 stale 가능성을 표시하고 현재 source evidence를 우선한다.
+
+repo가 크고 multi-agent 도구가 있으면 OpenWiki처럼 read-only 조사만 병렬화한다.
+
+- 기본 1-2개 subagent만 쓴다. 도메인이 뚜렷하고 중형 이하일 때만 3-4개까지 늘린다.
+- brief는 `기존 문서`, `runtime architecture`, `data/storage`, `UI/API surface`, `integrations`, `tests/evals`, `business workflows`처럼 좁게 나눈다.
+- subagent는 읽기/요약만 한다. 파일 생성, 수정, 삭제, 이동, `docs/project-context/` 작성은 금지한다.
+- subagent 결과는 내부 조사 메모로만 쓰고, 최종 문서 작성과 source 검증 책임은 메인 agent가 가진다.
 
 5. 문서 모드를 고른다.
 
