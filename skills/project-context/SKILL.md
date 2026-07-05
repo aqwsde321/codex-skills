@@ -79,6 +79,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - shell/git 명령은 repo root에서 실행하고 target repo 밖을 검색하지 않는다. `..`, parent directory, host absolute path를 따라가며 source를 찾지 않는다.
 - helper script의 `--doc`, `--metadata`, `--plan-path` 값은 repo-relative path만 쓴다. absolute path, `..` parent traversal, symlink parent는 거부된다.
 - 이전 metadata는 `updatedAt`, `command`, `model`이 있는 구조적으로 유효한 경우에만 이전 성공 run 기준으로 쓴다. `docs/project-context/.metadata.json`이 없으면 OpenWiki 호환 `openwiki/.last-update.json`을 fallback으로 읽는다.
+- OpenWiki fallback metadata도 repo 내부 regular path만 쓴다. `openwiki/`가 symlink parent면 fallback을 무시한다.
 - `last_update_metadata`: OpenWiki 호환 `updatedAt`, `command`, `gitHead`, `model`만 보여준다. `last_update_metadata_source`로 어느 metadata를 기준으로 삼았는지 확인한다.
 - `snapshot`: OpenWiki처럼 문서 작성 전 content hash를 잡는다. 완료 후 `record --before-hash <hash> --if-changed`로 실제 문서 변경이 있을 때만 metadata를 기록한다.
 

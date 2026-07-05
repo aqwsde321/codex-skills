@@ -220,6 +220,8 @@ def openwiki_update_metadata(metadata: dict | None) -> dict | None:
 
 def load_last_update_metadata(root: Path, metadata_rel: str) -> tuple[dict | None, str | None]:
     for candidate in (metadata_rel, OPENWIKI_METADATA):
+        if symlink_parent(root, candidate):
+            continue
         metadata = openwiki_update_metadata(read_json(root / candidate))
         if metadata:
             return metadata, candidate
@@ -237,6 +239,8 @@ def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
 
 def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str | None, str]:
     for candidate in (metadata_rel, OPENWIKI_METADATA):
+        if symlink_parent(root, candidate):
+            continue
         metadata = read_json(root / candidate)
         if metadata and is_structured_update_metadata(metadata):
             for key in ("gitHead", "source_commit", "git_head"):
