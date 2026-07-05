@@ -195,7 +195,7 @@ python3 <skill-dir>/scripts/project_context_update.py record . --run-command upd
 - `docs/project-context.md` 존재
 - `docs/project-context/.metadata.json`은 성공 갱신 후 기록
 - metadata의 `source_commit` 존재
-- 상대 Markdown source link가 1개 이상 존재
+- `## 근거` 안에 `docs/project-context` 내부 문서가 아닌 실제 repo source link가 1개 이상 존재
 - 상대 Markdown source link가 실제 repo 파일/디렉터리를 가리킴
 - 모든 context 문서에 `## 근거` 섹션 존재
 - multi-page 하위 문서가 index 문서로 링크

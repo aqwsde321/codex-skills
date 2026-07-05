@@ -16,6 +16,7 @@ MIN_SUBPAGE_BODY_CHARS = 500
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
+NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 AGENT_START_MARKER = "<!-- project-context:start -->"
@@ -73,6 +74,20 @@ def discover_docs(root: Path, primary_doc: str) -> list[str]:
     return docs
 
 
+def is_context_doc_rel(path: str) -> bool:
+    return path == DEFAULT_DOC or path.startswith(f"{DEFAULT_DOC_DIR}/")
+
+
+def extract_evidence_section(markdown: str) -> str:
+    match = EVIDENCE_HEADING_RE.search(markdown)
+    if not match:
+        return ""
+    start = match.end()
+    next_heading = NEXT_H2_RE.search(markdown, start)
+    end = next_heading.start() if next_heading else len(markdown)
+    return markdown[start:end]
+
+
 def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -88,7 +103,8 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     if require_metadata and not source_commit_match:
         errors.append(f"{doc_rel}: missing metadata: source_commit")
 
-    if not EVIDENCE_HEADING_RE.search(markdown):
+    evidence_section = extract_evidence_section(markdown)
+    if not evidence_section:
         errors.append(f"{doc_rel}: missing section: ## 근거")
 
     head = git_short_head(root)
@@ -98,11 +114,13 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
             warnings.append(f"{doc_rel}: stale source_commit: {source_commit} != {head}")
 
     links = list(iter_relative_links(markdown))
+    evidence_links = set(iter_relative_links(evidence_section))
     if not links:
         errors.append(f"{doc_rel}: missing relative source links")
 
     broken_links: list[str] = []
     links_to_index = False
+    evidence_source_links: list[str] = []
     doc_dir = doc_path.parent
     index_path = (root / DEFAULT_DOC).resolve()
     for link in links:
@@ -116,12 +134,20 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
             continue
         if not target_path.exists():
             broken_links.append(link)
+            continue
+        if link in evidence_links:
+            rel = target_path.relative_to(root).as_posix()
+            if not is_context_doc_rel(rel):
+                evidence_source_links.append(rel)
 
     for link in broken_links:
         errors.append(f"{doc_rel}: broken source link: {link}")
 
     if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and not links_to_index:
         errors.append(f"{doc_rel}: missing link back to {DEFAULT_DOC}")
+
+    if evidence_section and not evidence_source_links:
+        errors.append(f"{doc_rel}: missing source evidence links in ## 근거")
 
     if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and doc_rel != TEMP_PLAN and len(body) < MIN_SUBPAGE_BODY_CHARS:
         warnings.append(f"{doc_rel}: thin page; merge into {DEFAULT_DOC} or expand with source-grounded guidance")
