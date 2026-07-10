@@ -46,6 +46,8 @@ codex-skills/
 ├── docs/
 │   └── solutions/
 │       └── README.md
+├── hooks/
+│   └── turn_usage_summary.py
 ├── instructions/
 │   ├── docs.md
 │   ├── git.md
@@ -113,6 +115,36 @@ cp instructions/skill-shortcuts.md ~/.codex/instructions/
 설치 후 Codex를 재시작하면 skill 목록에 반영된다.
 
 `solution-capture`를 프로젝트에서 쓰려면 해당 프로젝트에 `docs/solutions/`를 두고, 가능하면 이 저장소의 `docs/solutions/README.md` 내용을 복사하거나 프로젝트 `AGENTS.md`에 Documented Solutions 규칙을 추가한다.
+
+### Turn Usage Hook
+
+턴 종료 시 현재 turn 토큰, 현재 대화 context 비율, 계정 전체 5시간/7일 quota 잔여율을 보고 싶으면 전역 hook으로 설치한다. 전역 설정은 한 번만 하면 다른 프로젝트에서도 적용된다.
+
+```bash
+mkdir -p ~/.codex/hooks
+cp hooks/turn_usage_summary.py ~/.codex/hooks/turn_usage_summary.py
+```
+
+`~/.codex/config.toml`에 Stop hook을 추가한다.
+
+```toml
+# Turn usage summary hook
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "python3 /Users/<user>/.codex/hooks/turn_usage_summary.py"
+timeout = 5
+```
+
+Codex가 hook을 untrusted로 표시하면 Hooks 설정에서 trust한다. 이미 `~/.codex/config.toml`에 hook을 쓰고 있다면 `~/.codex/hooks.json`에는 hook을 두지 않는다. 같은 layer에서 `hooks.json`과 `config.toml` hook을 동시에 쓰면 `loading hooks from both ...; prefer a single representation for this layer` 경고가 난다.
+
+`acct left`의 5시간/7일 quota 값은 계정 전체 잔여율이라 다른 대화와 프로젝트 사용량이 반영된다. 대화별 사용량으로 해석하지 않는다.
+
+출력 예:
+
+```text
+Turn: 7,000 tok; ctx 9.93%; acct left 5h 96%, 7d 99%
+```
 
 ### Global Instructions
 
