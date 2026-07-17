@@ -1,7 +1,7 @@
 interface:
-  display_name: "50기록 / Solution Capture"
+  display_name: "Solution Capture"
   short_description: "확인받은 해결 지식을 docs/solutions에 기록"
-  default_prompt: "Use $solution-capture to 50기록: 방금 해결한 문제를 사용자 확인 후 docs/solutions에 재사용 가능한 해결 기록으로 남겨줘."
+  default_prompt: "Use $solution-capture: 방금 해결한 문제를 사용자 확인 후 docs/solutions에 재사용 가능한 해결 기록으로 남겨줘."
 
 policy:
   allow_implicit_invocation: false

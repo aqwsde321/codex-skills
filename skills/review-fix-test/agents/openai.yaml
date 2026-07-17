@@ -1,7 +1,0 @@
-interface:
-  display_name: "40리뷰 / Review Fix Test"
-  short_description: "변경분을 Core 중심으로 리뷰하고 기준/스펙이 있으면 함께 검증"
-  default_prompt: "Use $review-fix-test to 40리뷰: 현재 변경분을 Core Risk 중심으로 리뷰하고, Standards나 Spec 근거가 있으면 함께 확인해 필요한 수정과 검증을 진행해줘."
-
-policy:
-  allow_implicit_invocation: true

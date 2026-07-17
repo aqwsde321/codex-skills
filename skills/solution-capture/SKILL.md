@@ -1,6 +1,6 @@
 ---
 name: solution-capture
-description: Capture solved problems, debugging outcomes, project-specific decisions, or reusable workflow patterns as durable Markdown notes under docs/solutions. Use when invoked as `$solution-capture` or through Korean shortcuts such as "50기록", "해결기록", "해결지식", "지식축적", "컴파운드", "문제 해결 기록", or when the user asks to document lessons learned after fixing, debugging, reviewing, or setting up something.
+description: Capture solved problems, debugging outcomes, project-specific decisions, or reusable workflow patterns as durable Markdown notes under docs/solutions. Use when invoked as `$solution-capture` or through Korean shortcuts such as "해결기록", "해결지식", "지식축적", "컴파운드", "문제 해결 기록", or when the user asks to document lessons learned after fixing, debugging, reviewing, or setting up something.
 ---
 
 # Solution Capture
