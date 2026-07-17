@@ -13,7 +13,6 @@
 | `feature-flow-review` | `기능플로우리뷰` | 다단계 기능의 분기, 상태 전이, 외부 연동을 정리한다. |
 | `api-design-review` | `API리뷰` | 확정된 플로우를 API 엔드포인트와 edge case로 정리한다. |
 | `project-context` | `프로젝트 컨텍스트 세팅` | codebase-memory와 source-grounded 프로젝트 문서를 준비한다. |
-| `simplification-debt` | `단순화부채` | `ponytail:` 주석의 한계와 재검토 조건을 모은다. |
 | `solution-capture` | `해결기록` | 확인된 해결 지식을 `docs/solutions/`에 기록한다. |
 
 번호 호출어는 사용하지 않는다. 전체 별칭과 라우팅은 `instructions/skill-shortcuts.md`에 있다.
@@ -60,8 +59,6 @@ codex-skills/
     ├── grilling/
     ├── project-context/
     │   └── scripts/
-    ├── simplification-debt/
-    │   └── scripts/
     ├── solution-capture/
     └── tdd/
         ├── mocking.md
@@ -104,7 +101,6 @@ TDD
 기능플로우리뷰
 API리뷰
 프로젝트 컨텍스트 세팅
-단순화부채
 해결기록
 ```
 

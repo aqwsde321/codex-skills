@@ -11,7 +11,6 @@
 | `기능플로우리뷰` | `$feature-flow-review` |
 | `API리뷰` | `$api-design-review` |
 | `프로젝트 컨텍스트 세팅` | `$project-context` |
-| `단순화부채` | `$simplification-debt` |
 | `해결기록` | `$solution-capture` |
 
 ## Routing

@@ -1,7 +1,0 @@
-interface:
-  display_name: "단순화부채 / Simplification Debt"
-  short_description: "ponytail 주석 기반 단순화 부채 점검"
-  default_prompt: "Use $simplification-debt to 단순화부채: 현재 저장소의 ponytail 주석을 스캔해 한계와 재검토 트리거를 요약해줘."
-
-policy:
-  allow_implicit_invocation: false
