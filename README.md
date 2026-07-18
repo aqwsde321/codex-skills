@@ -1,6 +1,6 @@
 # Codex Skills
 
-자주 쓰는 workflow만 유지하는 Codex skill 모음이다. Matt Pocock 원본 5개와 프로젝트 고유 skill을 함께 둔다.
+자주 쓰는 workflow만 유지하는 Codex skill 모음이다. Matt Pocock 원본을 최소 포팅한 5개와 프로젝트 고유 skill을 함께 둔다.
 
 ## Skills
 
@@ -9,7 +9,7 @@
 | `grill-me` + `grilling` | `설계리뷰` | 계획의 미확정 결정을 한 질문씩 검증한다. |
 | `diagnosing-bugs` | `진단` | 재현 가능한 red-capable feedback loop부터 버그 원인을 좁힌다. |
 | `tdd` | `TDD` | 합의한 seam에서 한 테스트와 한 구현의 vertical slice를 반복한다. |
-| `code-review` | `코드리뷰` | fixed point부터 `HEAD`까지 Standards와 Spec을 병렬 리뷰한다. |
+| `code-review` | `코드리뷰` | fixed point부터 `HEAD`와 현재 작업트리까지 Standards와 Spec을 병렬 리뷰한다. |
 | `feature-flow-review` | `기능플로우리뷰` | 다단계 기능의 분기, 상태 전이, 외부 연동을 정리한다. |
 | `api-design-review` | `API리뷰` | 확정된 플로우를 API 엔드포인트와 edge case로 정리한다. |
 | `project-context` | `프로젝트 컨텍스트 세팅` | codebase-memory와 source-grounded 프로젝트 문서를 준비한다. |
@@ -19,7 +19,7 @@
 
 ## Upstream Scope
 
-아래 디렉터리는 `mattpocock/skills@9603c1cc8118d08bc1b3bf34cf714f62178dea3b` 원본이다.
+아래 디렉터리는 `mattpocock/skills@9603c1cc8118d08bc1b3bf34cf714f62178dea3b`를 기준으로 한 Codex 포팅본이다.
 
 - `grill-me`
 - `grilling`
@@ -27,11 +27,11 @@
 - `tdd`
 - `code-review`
 
-원본 파일은 현지화하지 않는다. 한국어 별칭은 instruction 파일에서만 관리한다.
+원본의 두 축 구조는 유지하고 Codex tool, 호출 문법, 로컬 context 경로, WIP 범위 누락만 최소 수정한다. 한국어 별칭은 instruction 파일에서만 관리한다.
 
-`code-review`는 fixed point 기준 보고 전용이며 미커밋 작업트리 리뷰, 자동 수정, 테스트, 커밋, 반복 옵션을 제공하지 않는다. 그런 작업은 일반 요청으로 별도 수행한다.
+`code-review`는 보고 전용 skill이다. 자동 수정, 테스트, 커밋, 반복 옵션은 일반 요청으로 별도 수행한다.
 
-`code-review` 원본은 이슈 조회 시 `docs/agents/issue-tracker.md` 또는 `setup-matt-pocock-skills`를 기대한다. 최소 구성을 위해 setup skill은 포함하지 않았다. 필요하면 spec 경로를 직접 제공하거나 setup skill을 별도 설치한다.
+`code-review`는 사용 가능한 repository connector나 CLI로 이슈를 조회한다. 조회 수단이나 spec이 없으면 사용자에게 spec 위치를 묻는다.
 
 ## Repository Layout
 
@@ -94,14 +94,14 @@ cp instructions/skill-shortcuts.md ~/.codex/instructions/
 ## Usage
 
 ```text
-설계리뷰
+$grill-me
 진단
 TDD
 코드리뷰 main
 기능플로우리뷰
 API리뷰
 프로젝트 컨텍스트 세팅
-해결기록
+$solution-capture
 ```
 
 `코드리뷰`에는 `main`, `HEAD~1`, tag 같은 fixed point를 준다. 없으면 skill이 질문한다.
@@ -149,8 +149,8 @@ Turn: 7,000 tok; ctx 9.93%; acct left 5h 96%, 7d 99%
 
 ## Development
 
-- upstream skill 갱신은 commit SHA를 먼저 바꾸고 원본 디렉터리를 통째로 교체한다.
-- 원본 skill 내부에는 한국어 호출어나 로컬 실행 규칙을 추가하지 않는다.
+- upstream skill 갱신은 commit SHA를 먼저 바꾸고 원본 디렉터리를 교체한 뒤 최소 Codex 포팅을 다시 적용한다.
+- upstream 기반 skill 내부에는 한국어 호출어를 추가하지 않는다.
 - 로컬 skill은 `skills/<skill-name>/` 아래에 둔다.
 - 단축어는 `instructions/skill-shortcuts.md`에서만 관리한다.
-- 공유 전 YAML frontmatter, `agents/openai.yaml`, upstream 파일 해시를 검증한다.
+- 공유 전 YAML frontmatter, `agents/openai.yaml`, upstream 대비 Codex 포팅 diff를 검증한다.
