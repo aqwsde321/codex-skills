@@ -1,0 +1,7 @@
+interface:
+  display_name: "Skill Quality Review"
+  short_description: "Audit the active skill suite and drill down"
+  default_prompt: "Use $skill-quality-review with no target to audit the active skill catalog, or pass a skill or directory for scoped review."
+
+policy:
+  allow_implicit_invocation: false

@@ -14,6 +14,7 @@
 | `api-design-review` | `API리뷰` | 확정된 플로우를 API 엔드포인트와 edge case로 정리한다. |
 | `project-context` | `프로젝트 컨텍스트 세팅` | codebase-memory와 source-grounded 프로젝트 문서를 준비한다. |
 | `solution-capture` | `해결기록` | 확인된 해결 지식을 `docs/solutions/`에 기록한다. |
+| `skill-quality-review` | `스킬검증` | 현재 활성 skill 전체를 감사하고 위험하거나 지정한 skill을 심층 검증한다. |
 
 번호 호출어는 사용하지 않는다. 전체 별칭과 라우팅은 `instructions/skill-shortcuts.md`에 있다.
 
@@ -59,6 +60,7 @@ codex-skills/
     ├── grilling/
     ├── project-context/
     │   └── scripts/
+    ├── skill-quality-review/
     ├── solution-capture/
     └── tdd/
         ├── mocking.md
@@ -102,9 +104,14 @@ TDD
 API리뷰
 프로젝트 컨텍스트 세팅
 $solution-capture
+$skill-quality-review
+$skill-quality-review skills/tdd
+$skill-quality-review skills/
 ```
 
 `코드리뷰`에는 `main`, `HEAD~1`, tag 같은 fixed point를 준다. 없으면 skill이 질문한다.
+
+`$skill-quality-review`는 대상이 없으면 현재 Codex 세션의 활성 skill 전체를 감사한다. skill 하나를 주면 개별 심층검사, 디렉터리를 주면 해당 suite 감사를 수행한다.
 
 ## Turn Usage Hook
 
@@ -154,3 +161,4 @@ Turn: 7,000 tok; ctx 9.93%; acct left 5h 96%, 7d 99%
 - 로컬 skill은 `skills/<skill-name>/` 아래에 둔다.
 - 단축어는 `instructions/skill-shortcuts.md`에서만 관리한다.
 - 공유 전 YAML frontmatter, `agents/openai.yaml`, upstream 대비 Codex 포팅 diff를 검증한다.
+- 새로 작성하거나 수정한 skill은 공유 전 `$skill-quality-review <skill>`로 개별 품질 게이트를 통과시킨다. 전체 설치 구성을 점검할 때는 대상 없이 호출한다.
