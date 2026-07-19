@@ -10,7 +10,6 @@
 | `코드리뷰` | `$code-review` |
 | `기능플로우리뷰` | `$feature-flow-review` |
 | `API리뷰` | `$api-design-review` |
-| `프로젝트 컨텍스트 세팅` | `$project-context` |
 | `해결기록` | `$solution-capture` |
 | `스킬검증` | `$skill-quality-review` |
 

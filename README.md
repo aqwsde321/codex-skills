@@ -12,7 +12,6 @@
 | `code-review` | `코드리뷰` | fixed point부터 `HEAD`와 현재 작업트리까지 Standards와 Spec을 병렬 리뷰한다. |
 | `feature-flow-review` | `기능플로우리뷰` | 다단계 기능의 분기, 상태 전이, 외부 연동을 정리한다. |
 | `api-design-review` | `API리뷰` | 확정된 플로우를 API 엔드포인트와 edge case로 정리한다. |
-| `project-context` | `프로젝트 컨텍스트 세팅` | codebase-memory와 source-grounded 프로젝트 문서를 준비한다. |
 | `solution-capture` | `해결기록` | 확인된 해결 지식을 `docs/solutions/`에 기록한다. |
 | `skill-quality-review` | `스킬검증` | 현재 활성 skill 전체를 감사하고 위험하거나 지정한 skill을 심층 검증한다. |
 
@@ -58,8 +57,6 @@ codex-skills/
     ├── feature-flow-review/
     ├── grill-me/
     ├── grilling/
-    ├── project-context/
-    │   └── scripts/
     ├── skill-quality-review/
     ├── solution-capture/
     └── tdd/
@@ -75,7 +72,7 @@ codex-skills/
 
 ```bash
 retired=$(mktemp -d /tmp/codex-skills-retired.XXXXXX)
-for name in plan-grill diagnose tdd zoom-out review-fix-test; do
+for name in plan-grill diagnose tdd zoom-out review-fix-test project-context; do
   if [ -d ~/.codex/skills/"$name" ]; then
     mv ~/.codex/skills/"$name" "$retired"/
   fi
@@ -102,7 +99,6 @@ TDD
 코드리뷰 main
 기능플로우리뷰
 API리뷰
-프로젝트 컨텍스트 세팅
 $solution-capture
 $skill-quality-review
 $skill-quality-review skills/tdd
@@ -112,6 +108,27 @@ $skill-quality-review skills/
 `코드리뷰`에는 `main`, `HEAD~1`, tag 같은 fixed point를 준다. 없으면 skill이 질문한다.
 
 `$skill-quality-review`는 대상이 없으면 현재 Codex 세션의 활성 skill 전체를 감사한다. skill 하나를 주면 개별 심층검사, 디렉터리를 주면 해당 suite 감사를 수행한다.
+
+## Codebase Context
+
+프로젝트 코드 탐색과 문서화는 upstream 도구를 각각 사용한다.
+
+기존 `$project-context` 적용 흔적은 먼저 dry-run으로 확인하고 백업 이동한다.
+
+```bash
+python3 tools/migrate_project_context.py /path/to/repository
+python3 tools/migrate_project_context.py --apply /path/to/repository
+```
+
+`--apply`는 산출물과 원본 instruction 파일을 `~/.codex/backups/project-context/`에 보존하며 `openwiki/`와 `.codegraph/`는 건드리지 않는다.
+
+```bash
+codegraph init
+openwiki code --init
+```
+
+- CodeGraph: 심벌, 호출 경로, 변경 영향 탐색
+- OpenWiki: `openwiki/` 문서 생성과 `AGENTS.md`/`CLAUDE.md` 안내 관리
 
 ## Turn Usage Hook
 

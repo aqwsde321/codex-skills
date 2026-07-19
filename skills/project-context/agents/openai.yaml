@@ -1,4 +1,0 @@
-interface:
-  display_name: "Project Context"
-  short_description: "Source-grounded Codex wiki plus MCP onboarding"
-  default_prompt: "Use $project-context to read existing project context, create or refresh source-grounded docs/project-context.md when requested, validate it, and prepare this repository for faster agent work."
