@@ -122,32 +122,53 @@ Treat safety, authority, and irreversible-action instructions as high risk; do n
 
 ## 4. Run mechanical validation
 
-Check every accessible in-scope skill for:
+For every accessible filesystem-backed skill directory:
 
-- Frontmatter syntax and runtime-supported keys.
-- Skill name, folder name, metadata, invocation policy, and alias consistency.
-- Every local link, referenced file, cross-skill edge, tool dependency, and runnable command.
-- Repository-provided validators.
+1. Resolve the active `skill-creator` source and its `scripts/quick_validate.py`. This is the authority for frontmatter, required fields, name format, and current Codex rules.
+2. Run this skill's `scripts/validate_skill_tree.py`, passing that official validator with `--quick-validator`; the helper runs it once before supplemental checks. Use the result for folder/name equality, local Markdown targets, metadata asset files, `agents/openai.yaml`, invocation-policy format, and declared dependencies.
+3. Run repository-provided validators when they apply.
 
-Record validator dependency failures separately from skill failures. A mechanical pass is not a behavioral pass.
+```bash
+uv run --script <review-skill>/scripts/validate_skill_tree.py <target-skill> \
+  --quick-validator <skill-creator>/scripts/quick_validate.py
+```
+
+Pass runtime tool names with repeated `--available-tool`, logical MCP dependency IDs with `--available-mcp`, and evidence-backed body requirements with `--required-file`, `--required-tool`, or `--required-executable`. Pass `--tool-catalog-complete` or `--mcp-catalog-complete` only when that corresponding inventory is complete. Exit `0` means a complete pass, `1` a confirmed failure, and `2` incomplete validation.
+
+Treat unavailable `uv`, dependency resolution, the official validator, the YAML parser, or the CommonMark parser as `validator unavailable`, never as a pass. Keep confirmed skill failures separate from unavailable or incomplete checks. A mechanical pass is not a behavioral pass.
+
+Extract local file, tool, and command dependencies only from explicit declarations or evidence recorded by the deep review. Compare runtime tool names with the active tool catalog. Check local files within the skill root and executables with path lookup only. Do not invoke a target skill's tools, commands, or scripts during mechanical validation. Classify a confirmed absence as `missing/stale dependency`; when availability cannot be observed, record it as unresolved and do not award a complete mechanical pass.
+
+Do not hard-code a discovery backend. Follow the target project's instructions when code analysis requires one. Do not use code-discovery tools for YAML, Markdown, or local-link validation.
 
 ## 5. Run behavioral validation
 
-Use fresh contexts without leaking expected answers.
+Use one fresh agent for each independent behavioral condition. Call `spawn_agent(fork_turns="none")` and assign exactly one condition to that agent; never reuse it for another condition.
+
+Give the agent only an ordinary task prompt and required raw artifacts. Do not say it is a test. Do not pass expected results, suspected defects, intended fixes, prior conclusions, or outputs from other cases. Keep the evaluation oracle in the coordinating context.
 
 Test invocation according to the contract:
 
-- For model-invoked skills, use positive prompts that should trigger and near-miss prompts that should not.
-- For user-only skills, verify direct invocation and, when the runtime makes it observable, non-invocation without the explicit call.
-- For mixed skills, verify both direct invocation and the model-invoked positive/near-miss cases.
+- For model-invocation positive and near-miss cases, use a natural user prompt without the target skill name, its source path, or `$skill-name`.
+- For direct-invocation cases, explicitly use `$skill-name`. Include its source path only when needed to resolve the intended revision.
+- For user-only skills, verify direct invocation and, when the runtime makes it observable, non-invocation with a natural prompt that also omits the skill name, source path, and `$skill-name`.
+- For mixed skills, verify direct invocation, model-invocation positive, and near-miss cases.
 
 For suite collision findings, test the same ambiguous prompt against the involved skills and observe routing. For each selected skill, test normal completion, important branches, and failure or incomplete-input behavior.
 
 For leading-word compression, compare the original prose and compressed form on the same tasks. Pass only when intended behavior and safety constraints are preserved, not merely when token count falls.
 
-Use no-skill, full-skill, and ablated-skill comparisons when deciding a guidance or pruning dispute. Repeat probabilistic cases only enough to distinguish a pattern from one lucky result; do not build an exhaustive model-by-prompt-by-repeat matrix by default.
+Use no-skill, full-skill, and ablated-skill comparisons with the same task inputs and settings when deciding a guidance or pruning dispute. Repeat probabilistic cases only enough to distinguish a pattern from one lucky result; do not build an exhaustive model-by-prompt-by-repeat matrix by default.
 
-Use fixtures or sandboxes for side-effecting workflows. If safe execution or required authority is unavailable, skip the case and mark it `not tested`.
+Before those comparisons, define and verify a condition-specific exposure manifest. The no-skill case must omit the target from both the active skill catalog and case sandbox. The full-skill case must expose only the exact full revision under test. The ablated case must expose only the exact ablated revision and must not retain the full revision in its catalog or sandbox. Record the catalog state and content revision or hash for every condition.
+
+`fork_turns="none"` isolates conversation history, not the shared filesystem. Give every case a clean case-specific sandbox and do not leave prior outputs, diagnoses, or expected artifacts visible between cases. Use fixtures or sandboxes for side-effecting workflows.
+
+Execute a target tool only when execution is necessary to validate the selected behavior, a safe fixture or sandbox exists, and required authority is available. If a forward test may take a long time, require additional approval, or modify a live system, show the proposed prompt and obtain user approval before running it.
+
+If the target is not active for an implicit-trigger test, invocation is not observable, or any other required precondition above cannot be controlled and verified, mark the affected case `not tested`. Do not infer invocation from output quality alone or award a behavioral pass for that case.
+
+If a required behavioral case is `not tested`, set the behavioral verdict to `not tested`. If only static or mechanical checks ran, use `static review only`; do not issue `pass` or `pass with risks`.
 
 Record runtime, model, prompts, revisions, and observed results. Do not declare the suite or a skill effective when only static checks ran. A sampled behavioral pass is not a suite-wide behavioral pass.
 
