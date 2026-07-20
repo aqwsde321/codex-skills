@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Context"
+  short_description: "Create and refresh source-grounded project docs"
+  default_prompt: "Use $project-context to read existing project context, create or refresh source-grounded docs/project-context.md when requested, validate it, and prepare this repository for faster agent work."
