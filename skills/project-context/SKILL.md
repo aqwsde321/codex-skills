@@ -211,7 +211,7 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 python3 <skill-dir>/scripts/project_context_update.py sync-index .
 python3 <skill-dir>/scripts/project_context_update.py delete-plan .
 python3 <skill-dir>/scripts/project_context_update.py record . \
-  --mode init \
+  --mode <init|update> \
   --if-changed \
   --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
 python3 <skill-dir>/scripts/validate_project_context.py .
@@ -247,6 +247,8 @@ metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기
 - context 문서·metadata·parent가 symlink 아님
 - host absolute path와 secret-looking 값 없음
 - top-level agent 안내가 하나의 current marker section
+
+validator가 exit 0을 반환하고 blocking warning이 해소될 때까지 원인을 수정한 뒤 검증을 다시 실행한다. 두 조건을 충족하기 전에는 완료 보고하지 않는다.
 
 ## 완료 보고
 

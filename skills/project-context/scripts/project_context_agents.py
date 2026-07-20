@@ -21,7 +21,7 @@ Start here:
 - [Project context](docs/project-context.md)
 
 Project context includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
-For ordinary project questions, read the project context first and follow its links only as relevant. Read the primary page first; do not preload every supporting page. In multi-page context, open only pages whose `read_when` guidance matches the task. When context is missing, stale, ambiguous, or exact implementation verification is required, inspect the relevant source; current source remains authoritative. Follow repository instructions for code discovery, and run `$project-context` when the context needs refresh.
+For ordinary project questions, read the project context first and follow its links only as relevant. Read the primary page first; do not preload every supporting page. In multi-page context, open only pages whose `read_when` guidance matches the task. When context is missing, stale, ambiguous, or exact implementation verification is required, inspect the relevant source; current source remains authoritative. Follow repository instructions for code discovery. Run `$project-context` to refresh documentation only when the user explicitly requests creation or refresh, or directly invokes the skill without a narrower read-only request; missing or stale context alone does not authorize writes.
 {END_MARKER}
 """
 
@@ -41,6 +41,7 @@ def is_semantically_current_section(section: str) -> bool:
         and "exact implementation verification" in section
         and "current source remains authoritative" in section
         and "$project-context" in section
+        and "missing or stale context alone does not authorize writes" in section
     )
 
 

@@ -676,6 +676,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("exact implementation verification", first)
         self.assertIn("current source remains authoritative", first)
         self.assertIn("repository instructions for code discovery", first)
+        self.assertIn("explicitly requests creation or refresh", first)
+        self.assertIn("missing or stale context alone does not authorize writes", first)
 
     def test_old_agent_section_is_replaced_by_context_first_guidance(self):
         stale_section = project_context_agents.SECTION.replace(
@@ -689,6 +691,20 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertTrue(
             validate_project_context.is_semantically_current_agent_section(next_text)
         )
+
+    def test_agent_section_without_write_authority_guard_is_replaced(self):
+        stale_section = project_context_agents.SECTION.replace(
+            "missing or stale context alone does not authorize writes",
+            "stale context should be refreshed",
+        )
+
+        next_text, changed = project_context_agents.replace_marked_section(stale_section)
+
+        self.assertFalse(
+            validate_project_context.is_semantically_current_agent_section(stale_section)
+        )
+        self.assertTrue(changed)
+        self.assertEqual(next_text, project_context_agents.SECTION)
 
     def test_temp_plan_scaffolds_relationships_and_deferred_coverage(self):
         plan = project_context_update.format_temp_plan(

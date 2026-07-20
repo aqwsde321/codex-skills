@@ -90,6 +90,7 @@ READ_WHEN_TEXT = "read_when"
 EXACT_IMPLEMENTATION_VERIFICATION_TEXT = "exact implementation verification"
 CURRENT_SOURCE_AUTHORITATIVE_TEXT = "current source remains authoritative"
 SKILL_TRIGGER_TEXT = "$project-context"
+WRITE_AUTHORITY_TEXT = "missing or stale context alone does not authorize writes"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 PRIMARY_SOURCE_SUFFIXES = {
@@ -810,6 +811,7 @@ def is_semantically_current_agent_section(section: str) -> bool:
         and EXACT_IMPLEMENTATION_VERIFICATION_TEXT in section
         and CURRENT_SOURCE_AUTHORITATIVE_TEXT in section
         and SKILL_TRIGGER_TEXT in section
+        and WRITE_AUTHORITY_TEXT in section
     )
 
 
