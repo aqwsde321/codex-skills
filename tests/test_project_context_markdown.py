@@ -231,6 +231,20 @@ class InlineLinkTargetsTest(unittest.TestCase):
 
         self.assertEqual(self.targets(markdown), ["inside-real.py", "outside-real.py"])
 
+    def test_over_indented_fake_fence_cannot_close_a_list_fence(self):
+        markdown = (
+            "- Item\n"
+            "  ```\n"
+            "  - fake nested item\n"
+            "      ```\n"
+            "      [Fake](fake.py)\n"
+            "  ```\n"
+            "  [Inside real](inside-real.py)\n"
+            "[Outside real](outside-real.py)\n"
+        )
+
+        self.assertEqual(self.targets(markdown), ["inside-real.py", "outside-real.py"])
+
     def test_indented_fence_cannot_interrupt_a_paragraph(self):
         markdown = (
             "Paragraph\n"

@@ -415,6 +415,7 @@ def iter_inline_link_targets(markdown: str):
     while index < len(markdown):
         if line_start:
             line_end = _line_end(markdown, index)
+            line_indent, _ = _indent_columns(markdown, index, line_end)
             fence_line = _fence_line_parts(markdown, index, line_end)
             if fence is not None and _line_in_fence_container(
                 markdown, index, line_end, fence[2]
@@ -424,6 +425,10 @@ def iter_inline_link_targets(markdown: str):
                     and fence[0] == fence_line[0]
                     and fence_line[1] >= fence[1]
                     and (fence[2][0] == "list" or fence[2] == fence_line[3])
+                    and (
+                        fence[2][0] != "list"
+                        or line_indent < fence[2][2] + 4
+                    )
                     and not fence_line[2].strip(" \t\r")
                 ):
                     fence = None
