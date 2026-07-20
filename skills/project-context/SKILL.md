@@ -25,7 +25,7 @@ write gate: 사용자가 프로젝트 컨텍스트 문서 생성·세팅·갱신
 
 - `chat`: write gate를 충족하지 않았다. 문서가 없어도 만들지 않는다. primary만 먼저 읽고, multi-page이면 작업과 `read_when`이 맞는 하위 문서만 연다. 모든 하위 문서를 미리 읽지 않는다. 문서로 충분하면 광범위한 source 재탐색 없이 답한다. 정확한 최신 동작 확인이 필요하거나 context가 stale·모호·source와 충돌할 때만 관련 source를 좁게 확인한다. 충돌 시 현재 source가 우선이다. 파일과 metadata를 수정하지 않는다.
 - `init`: write gate를 충족했고 context 문서가 없다. 문서를 만들고 `record --mode init`으로 기록한다.
-- `update`: write gate를 충족했고 context 문서가 있다. 영향 문서만 고치고 `record --mode update --if-changed`로 기록한다.
+- `update`: write gate를 충족했고 context 문서가 있다. 영향 문서와 계획이 요구한 문서 구조만 고치고 `record --mode update --if-changed`로 기록한다.
 
 ## Helper 명령
 
@@ -70,18 +70,25 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `update-affected-docs`: source link가 가리키는 변경에 연결된 문서만 갱신
 - `review-unmapped-changes`: 기존 문서에 연결되지 않은 변경을 새 근거·새 섹션·무시 중 하나로 판단
 - `review-generated-doc-changes`: 현재 작업트리에서 context 문서가 직접 바뀌었는지 확인
+- `review-document-structure`: 현재 mode·문서 수·primary body budget을 재검토하고 필요한 분할·병합 수행
 - `review-recent-history`: 이전 성공 metadata가 없어 최근 history를 기준점으로 검토
 - `no-op`: 문서는 수정하지 않는다. 변경 후 되돌린 commit까지 검토 기준점에 포함되도록 `record --if-changed`를 실행한 뒤 검증
 
-`affected_docs`, `unmapped_changes`, `renamed_paths`, `git_summary`, `soft_diff_budget_warnings`를 먼저 읽는다. 커밋 메시지만 믿지 말고 후보 source를 다시 확인한다.
+`recommended_action`은 주된 변경 경로이고 `required_actions`는 모두 수행한다. `review-document-structure`가 포함되면 다른 action과 함께 구조도 바로잡는다.
+
+`required_actions`, `structure_issues`, `affected_docs`, `unmapped_changes`, `renamed_paths`, `git_summary`, `soft_diff_budget_warnings`를 먼저 읽는다. 커밋 메시지만 믿지 말고 후보 source를 다시 확인한다.
+
+사용자가 문서 구조·분할·병합 재검토를 명시하면 plan의 `no-op`보다 요청을 우선하고 `review-document-structure`를 수행한다.
+
+모든 `update`에서 single-page primary를 읽고 서로 독립적으로 읽을 도메인·workflow가 2개 이하인지 다시 판단한다. 3개 이상이면 넓은 source 재탐색 없이 `review-document-structure`를 `required_actions`에 추가한 것으로 간주해 기존 action과 함께 수행한다.
 
 `source_commit`은 문서가 실제로 설명하는 source 기준점이다. `reviewed_commit`은 문서 변경이 불필요하다고 판단한 commit까지 포함한 마지막 검토 기준점이다. 계획은 유효한 `reviewed_commit`을 우선 사용하고, 없으면 `source_commit`으로 fallback한다. 이후 context 문서와 marked agent 안내만 커밋된 경우 stale로 보지 않는다.
 
 실행 분기:
 
 - `chat`: 여기서 write 절차를 중단하고 읽기 전용으로 답한다.
-- `no-op`: `sync-index`를 포함한 문서 작성과 `_plan.md` 생성을 건너뛴다. marked agent 안내가 없거나 stale할 때만 7단계를 실행하고, 8단계에서는 `record --mode update --if-changed`와 검증만 실행한다.
-- 나머지 action: 3~8단계를 실행한다. `create-docs`만 `--mode init`, 나머지는 `--mode update`를 사용한다.
+- `no-op`: `required_actions`에 `no-op` 외 action이 없고 사용자 요청·single-page 의미 구조 재검토도 구조 변경을 요구하지 않은 경우에만 `sync-index`를 포함한 문서 작성과 `_plan.md` 생성을 건너뛴다. marked agent 안내가 없거나 stale할 때만 7단계를 실행하고, 8단계에서는 `record --mode update --if-changed`와 검증만 실행한다.
+- 나머지 action과 강제된 `review-document-structure`: 3~8단계를 실행한다. `create-docs`만 `--mode init`, 나머지는 `--mode update`를 사용한다.
 
 ### 3. high-signal source 조사
 
@@ -103,6 +110,8 @@ init에서는 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심
 ### 4. 문서 모드 선택
 
 예상 body가 8,000자 이하이고 서로 독립적으로 읽을 도메인·workflow가 2개 이하일 때만 단일 `docs/project-context.md`를 기본으로 사용한다. 8,000자를 넘거나 독립 영역이 3개 이상이면 multi-page로 전환한다.
+
+`review-document-structure`가 `required_actions`에 있거나 사용자 요청으로 강제되면 기존 mode를 고정값으로 보지 않고 위 기준을 다시 적용한다. 필요한 범위에서만 single/multi 전환·분할·병합하고, 기준을 이미 충족하면 구조를 유지한다.
 
 multi-page primary는 전체 내용을 요약한 문서가 아니라 얇은 router다. body 목표는 2,500자 이하, hard limit은 4,000자다. 프로젝트 요약, 전역 변경 주의점, generated index, 문서화 백로그, 최소 근거만 두고 상세 workflow·testing·operation은 하위 문서로 옮긴다. 초기 문서는 전체 8개 이하로 유지한다. tracked primary source가 10개 이하인 작은 repo는 기본 문서와 보조 문서 1~2개까지만 쓴다.
 
@@ -230,7 +239,7 @@ metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기
 - mode와 실제 문서 수 일치
 - multi-page 하위 문서의 `title`, `description`, `read_when` metadata 완전
 - generated index가 하위 문서 metadata와 정확히 일치
-- multi-page primary body 4,000자 이하. single-page는 8,000자 초과 시 분리 경고
+- multi-page primary body 4,000자 이하. single-page body가 8,000자를 넘으면 validator가 warning만 내더라도 구조 검토를 완료한 것으로 보지 않음
 - 모든 source link가 repo 내부 실제 경로를 가리킴
 - 모든 문서에 `## 근거`와 외부 source evidence 존재
 - index↔하위 문서 링크 완전

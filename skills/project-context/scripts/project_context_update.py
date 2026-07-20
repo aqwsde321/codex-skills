@@ -24,6 +24,9 @@ from project_context_index import (  # noqa: E402
     replace_context_index,
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_structure import (  # noqa: E402
+    assess_primary_structure as document_structure_issues,
+)
 
 
 DEFAULT_DOC = "docs/project-context.md"
@@ -726,6 +729,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         }.items()
     )
     context_index_stale = context_index_needs_sync(root, doc_rel, docs)
+    structure_issues = document_structure_issues(root, doc_rel, docs)
     has_previous_context = previous_commit is not None or previous_updated_at is not None
     missing_last_update_warning = None
     if (root / doc_rel).exists() and not has_previous_context:
@@ -799,10 +803,15 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         recommended_action = "review-unmapped-changes"
     elif generated_context_doc_changes:
         recommended_action = "review-generated-doc-changes"
+    elif structure_issues:
+        recommended_action = "review-document-structure"
     elif not has_previous_context and since_changes:
         recommended_action = "review-recent-history"
     else:
         recommended_action = "no-op"
+    required_actions = [recommended_action]
+    if structure_issues and recommended_action != "review-document-structure":
+        required_actions.append("review-document-structure")
     plan = {
         "generator": GENERATOR,
         "generator_version": GENERATOR_VERSION,
@@ -835,11 +844,14 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "generated_context_doc_changes": generated_context_doc_changes,
         "metadata_document_state_stale": metadata_document_state_stale,
         "context_index_stale": context_index_stale,
+        "structure_review_required": bool(structure_issues),
+        "structure_issues": structure_issues,
         "affected_docs": affected_docs,
         "unmapped_changes": unmapped_changes,
         "soft_diff_budget_warning": "; ".join(budget_warnings) if budget_warnings else None,
         "soft_diff_budget_warnings": budget_warnings,
         "recommended_action": recommended_action,
+        "required_actions": required_actions,
     }
     plan["git_summary"] = build_git_summary(plan)
     return plan
@@ -872,7 +884,18 @@ def format_json_block(value: dict | None) -> list[str]:
     return [f"  {line}" for line in safe_json_dumps(value).splitlines()]
 
 
+def format_structure_issues(issues: list[dict]) -> list[str]:
+    if not issues:
+        return ["- (none)"]
+    return [
+        f"- [{issue.get('code', 'unknown')}] {issue.get('path', '(unknown)')}: "
+        f"{issue.get('message', '(no message)')}"
+        for issue in issues
+    ]
+
+
 def format_plan(plan: dict) -> str:
+    required_actions = plan.get("required_actions") or [plan.get("recommended_action")]
     lines = [
         "# Project Context Update Plan",
         "",
@@ -883,6 +906,7 @@ def format_plan(plan: dict) -> str:
         f"- metadata_path: {plan.get('metadata_path')}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- required_actions: {', '.join(action for action in required_actions if action)}",
         f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         "",
@@ -893,6 +917,11 @@ def format_plan(plan: dict) -> str:
         lines.extend(f"- {warning}" for warning in budget_warnings)
     else:
         lines.append("- (none)")
+    lines.extend([
+        "",
+        "## Document Structure Issues",
+        *format_structure_issues(plan.get("structure_issues", [])),
+    ])
     lines.extend([
         "",
         "## Project Context Git Summary",
@@ -966,6 +995,7 @@ def format_plan(plan: dict) -> str:
 
 
 def format_temp_plan(plan: dict) -> str:
+    required_actions = plan.get("required_actions") or [plan.get("recommended_action")]
     lines = [
         "# Project Context Draft Plan",
         "",
@@ -977,6 +1007,7 @@ def format_temp_plan(plan: dict) -> str:
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
+        f"- required_actions: {', '.join(action for action in required_actions if action)}",
         f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
@@ -997,6 +1028,13 @@ def format_temp_plan(plan: dict) -> str:
         lines.extend(f"- {warning}" for warning in budget_warnings)
     else:
         lines.append("- (none)")
+
+    lines.extend([
+        "",
+        "## Document Structure Issues",
+        "",
+        *format_structure_issues(plan.get("structure_issues", [])),
+    ])
 
     lines.extend([
         "",
@@ -1303,6 +1341,7 @@ def main() -> int:
                     {
                         "plan_path": args.plan_path,
                         "recommended_action": plan.get("recommended_action"),
+                        "required_actions": plan.get("required_actions", []),
                         "previous_commit": plan.get("previous_commit"),
                         "previous_updated_at": plan.get("previous_updated_at"),
                         "previous_commit_source": plan.get("previous_commit_source"),
@@ -1312,6 +1351,8 @@ def main() -> int:
                         "missing_last_update_warning": plan.get("missing_last_update_warning"),
                         "soft_diff_budget_warning": plan.get("soft_diff_budget_warning"),
                         "soft_diff_budget_warnings": plan.get("soft_diff_budget_warnings", []),
+                        "structure_review_required": plan.get("structure_review_required", False),
+                        "structure_issues": plan.get("structure_issues", []),
                         "git_summary": plan.get("git_summary"),
                         "source_change_paths": plan.get("source_change_paths", []),
                         "affected_docs": plan.get("affected_docs", {}),

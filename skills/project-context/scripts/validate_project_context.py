@@ -26,6 +26,11 @@ from project_context_index import (  # noqa: E402
     render_context_index,
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_structure import (  # noqa: E402
+    MAX_MULTI_PAGE_PRIMARY_BODY_CHARS,
+    MAX_SINGLE_PAGE_BODY_CHARS,
+    assess_primary_structure,
+)
 
 
 DEFAULT_DOC = "docs/project-context.md"
@@ -39,8 +44,6 @@ SMALL_REPO_SOURCE_FILE_LIMIT = 10
 SMALL_REPO_DOC_LIMIT = 3
 MIN_SUBPAGE_BODY_CHARS = 500
 MIN_SINGLE_FILE_SECTION_CHARS = 1500
-MAX_MULTI_PAGE_PRIMARY_BODY_CHARS = 4000
-MAX_SINGLE_PAGE_BODY_CHARS = 8000
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
@@ -725,38 +728,29 @@ def validate_context_relationships(root: Path, doc_rel: str, docs: list[str]) ->
 
 
 def validate_primary_mode(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
-    primary_path = root / doc_rel
-    if primary_path.is_symlink() or not primary_path.exists() or not primary_path.is_file():
-        return [], []
-    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
-    mode = parse_frontmatter(markdown).get("mode")
-    if mode not in {"single-page", "multi-page"}:
-        return [], []
-    expected_mode = "multi-page" if any(doc != doc_rel for doc in docs) else "single-page"
-    if mode != expected_mode:
-        return [f"{doc_rel}: metadata mode must be {expected_mode} for {len(docs)} context document(s)"], []
-    return [], []
+    issues = assess_primary_structure(root, doc_rel, docs)
+    errors = [
+        f"{issue['path']}: {issue['message']}"
+        for issue in issues
+        if issue["code"] == "primary-mode-mismatch"
+    ]
+    return errors, []
 
 
 def validate_primary_size(root: Path, doc_rel: str) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    primary_path = root / doc_rel
-    if primary_path.is_symlink() or not primary_path.is_file():
-        return errors, warnings
-    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
-    mode = parse_frontmatter(markdown).get("mode")
-    body_length = len(FRONTMATTER_RE.sub("", markdown).strip())
-    if mode == "multi-page" and body_length > MAX_MULTI_PAGE_PRIMARY_BODY_CHARS:
-        errors.append(
-            f"{doc_rel}: multi-page primary body has {body_length} characters; "
-            f"keep the router at or below {MAX_MULTI_PAGE_PRIMARY_BODY_CHARS}"
-        )
-    elif mode == "single-page" and body_length > MAX_SINGLE_PAGE_BODY_CHARS:
-        warnings.append(
-            f"{doc_rel}: single-page body has {body_length} characters; "
-            f"split into indexed supporting pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
-        )
+    for issue in assess_primary_structure(root, doc_rel, [doc_rel]):
+        if issue["code"] == "multi-page-primary-too-large":
+            errors.append(
+                f"{doc_rel}: multi-page primary body has {issue['body_chars']} characters; "
+                f"keep the router at or below {MAX_MULTI_PAGE_PRIMARY_BODY_CHARS}"
+            )
+        elif issue["code"] == "single-page-primary-too-large":
+            warnings.append(
+                f"{doc_rel}: single-page body has {issue['body_chars']} characters; "
+                f"split into indexed supporting pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
+            )
     return errors, warnings
 
 

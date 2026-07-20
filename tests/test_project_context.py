@@ -194,6 +194,11 @@ read_when: 실행 흐름 변경 또는 동작 검증
             None,
         )
 
+    def record_and_commit_context(self, message):
+        self.record()
+        self.git("add", "AGENTS.md", "docs")
+        self.git("commit", "-m", message)
+
     def test_init_record_and_validate(self):
         self.write_context()
 
@@ -272,6 +277,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertEqual(plan["recommended_action"], "no-op")
+        self.assertEqual(plan["required_actions"], ["no-op"])
+        self.assertFalse(plan["structure_review_required"])
+        self.assertEqual(plan["structure_issues"], [])
         self.assertEqual(plan["source_change_paths"], [])
         self.assertTrue(record_result["skipped"])
         self.assertEqual(code, 0, (messages, warnings))
@@ -692,6 +700,35 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("## Deferred Coverage", plan)
         self.assertIn("area, source anchor, and reason", plan)
 
+    def test_plan_renderers_surface_required_structure_review(self):
+        plan = {
+            "recommended_action": "update-affected-docs",
+            "required_actions": [
+                "update-affected-docs",
+                "review-document-structure",
+            ],
+            "structure_issues": [
+                {
+                    "code": "single-page-primary-too-large",
+                    "path": project_context_update.DEFAULT_DOC,
+                    "message": "single-page primary body exceeds its limit",
+                }
+            ],
+            "docs": [project_context_update.DEFAULT_DOC],
+        }
+
+        rendered_plan = project_context_update.format_plan(plan)
+        rendered_temp_plan = project_context_update.format_temp_plan(plan)
+
+        for rendered in (rendered_plan, rendered_temp_plan):
+            self.assertIn(
+                "required_actions: update-affected-docs, review-document-structure",
+                rendered,
+            )
+            self.assertIn("## Document Structure Issues", rendered)
+            self.assertIn("[single-page-primary-too-large]", rendered)
+            self.assertIn(project_context_update.DEFAULT_DOC, rendered)
+
     def test_three_subpages_warn_only_for_isolated_peer_relationships(self):
         context_dir = self.root / "docs" / "project-context"
         context_dir.mkdir(parents=True)
@@ -881,6 +918,139 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertTrue(any("split into indexed supporting pages" in warning for warning in single_warnings))
         self.assertTrue(any("keep the router" in error for error in multi_errors))
         self.assertEqual(multi_warnings, [])
+
+    def test_plan_requires_structure_review_for_oversized_single_page(self):
+        context = self.write_context()
+        context.write_text(
+            context.read_text(encoding="utf-8") + ("상세 흐름을 반복한다. " * 1000),
+            encoding="utf-8",
+        )
+        self.record_and_commit_context("docs: add oversized project context")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertEqual(plan["recommended_action"], "review-document-structure")
+        self.assertEqual(plan["required_actions"], ["review-document-structure"])
+        self.assertTrue(plan["structure_review_required"])
+        self.assertEqual(
+            [issue["code"] for issue in plan["structure_issues"]],
+            ["single-page-primary-too-large"],
+        )
+
+    def test_plan_requires_structure_review_for_oversized_multi_page_router(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        context.write_text(
+            context.read_text(encoding="utf-8") + ("라우터 상세를 반복한다. " * 500),
+            encoding="utf-8",
+        )
+        self.record_and_commit_context("docs: add oversized context router")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertEqual(plan["recommended_action"], "review-document-structure")
+        self.assertEqual(
+            [issue["code"] for issue in plan["structure_issues"]],
+            ["multi-page-primary-too-large"],
+        )
+
+    def test_plan_requires_structure_review_for_mode_document_count_mismatch(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "mode: multi-page", "mode: single-page"
+            ),
+            encoding="utf-8",
+        )
+        self.record_and_commit_context("docs: add mismatched project context")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertEqual(plan["recommended_action"], "review-document-structure")
+        self.assertEqual(
+            [issue["code"] for issue in plan["structure_issues"]],
+            ["primary-mode-mismatch"],
+        )
+
+    def test_plan_requires_structure_review_for_invalid_primary_mode(self):
+        context = self.write_context()
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "mode: single-page", "mode: invalid"
+            ),
+            encoding="utf-8",
+        )
+        self.record_and_commit_context("docs: add invalid project context mode")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertEqual(plan["recommended_action"], "review-document-structure")
+        self.assertEqual(
+            [issue["code"] for issue in plan["structure_issues"]],
+            ["invalid-primary-mode"],
+        )
+
+    def test_structure_review_is_required_alongside_source_update(self):
+        context = self.write_context()
+        context.write_text(
+            context.read_text(encoding="utf-8") + ("상세 흐름을 반복한다. " * 1000),
+            encoding="utf-8",
+        )
+        self.record_and_commit_context("docs: add oversized project context")
+        (self.root / "app.py").write_text("print('changed')\n", encoding="utf-8")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertEqual(plan["recommended_action"], "update-affected-docs")
+        self.assertEqual(
+            plan["required_actions"],
+            ["update-affected-docs", "review-document-structure"],
+        )
+        self.assertTrue(plan["structure_review_required"])
+
+    def test_temp_plan_does_not_trigger_structure_review(self):
+        self.write_context()
+        self.record()
+        project_context_update.write_temp_plan(
+            self.root,
+            project_context_update.DEFAULT_TEMP_PLAN,
+            {"recommended_action": "update-affected-docs", "docs": []},
+        )
+
+        issues = project_context_update.document_structure_issues(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        self.assertEqual(issues, [])
 
     def test_invalid_metadata_is_not_accepted_as_valid(self):
         self.write_context()
