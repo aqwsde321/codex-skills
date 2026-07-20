@@ -7,7 +7,6 @@ from pathlib import Path
 
 START_MARKER = "<!-- project-context:start -->"
 END_MARKER = "<!-- project-context:end -->"
-PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
 MARKED_SECTION_RE = re.compile(
     rf"{re.escape(START_MARKER)}.*?{re.escape(END_MARKER)}",
     re.DOTALL,
@@ -22,7 +21,7 @@ Start here:
 - [Project context](docs/project-context.md)
 
 Project context includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
-When working in this repository, read the project context first, follow its links to relevant architecture, workflow, domain, operation, and testing notes, then follow repository instructions for code discovery. If the context is stale or missing, run `$project-context` to refresh it.
+For ordinary project questions, read the project context first and follow its links only as relevant. Read the primary page first; do not preload every supporting page. In multi-page context, open only pages whose `read_when` guidance matches the task. When context is missing, stale, ambiguous, or exact implementation verification is required, inspect the relevant source; current source remains authoritative. Follow repository instructions for code discovery, and run `$project-context` when the context needs refresh.
 {END_MARKER}
 """
 
@@ -36,21 +35,13 @@ def is_semantically_current_section(section: str) -> bool:
         and "source maps" in section
         and "follow its links" in section
         and "code discovery" in section
+        and "ordinary project questions" in section
+        and "do not preload every supporting page" in section
+        and "read_when" in section
+        and "exact implementation verification" in section
+        and "current source remains authoritative" in section
         and "$project-context" in section
     )
-
-
-def is_inside(match: re.Match, ranges: list[tuple[int, int]]) -> bool:
-    return any(start <= match.start() and match.end() <= end for start, end in ranges)
-
-
-def unmarked_reference_sections(text: str, marked_sections: list[re.Match]) -> list[re.Match]:
-    marked_ranges = [(match.start(), match.end()) for match in marked_sections]
-    matches = []
-    for match in PROJECT_CONTEXT_SECTION_RE.finditer(text):
-        if not is_inside(match, marked_ranges):
-            matches.append(match)
-    return sorted(matches, key=lambda match: match.start())
 
 
 def replace_sections(text: str, sections: list[re.Match]) -> tuple[str, bool]:
@@ -74,17 +65,13 @@ def replace_sections(text: str, sections: list[re.Match]) -> tuple[str, bool]:
 
 def replace_marked_section(text: str) -> tuple[str, bool]:
     marked_sections = list(MARKED_SECTION_RE.finditer(text))
-    unmarked_sections = unmarked_reference_sections(text, marked_sections)
     if marked_sections:
         if (
             len(marked_sections) == 1
-            and not unmarked_sections
             and is_semantically_current_section(marked_sections[0].group(0))
         ):
             return text, False
-        return replace_sections(text, [*marked_sections, *unmarked_sections])
-    if unmarked_sections:
-        return replace_sections(text, unmarked_sections)
+        return replace_sections(text, marked_sections)
     next_text = text.rstrip()
     if next_text:
         next_text += "\n\n"

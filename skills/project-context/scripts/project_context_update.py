@@ -5,6 +5,7 @@ import argparse
 import errno
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,16 +14,27 @@ from pathlib import Path
 from urllib.parse import unquote
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from project_context_index import (  # noqa: E402
+    parse_frontmatter,
+    render_context_index,
+    replace_context_index,
+)
+from project_context_markdown import iter_inline_link_targets  # noqa: E402
+
+
 DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "18"
+GENERATOR_VERSION = "20"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
-LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 HIGH_SIGNAL_PATHS = {
@@ -69,6 +81,15 @@ HIGH_SIGNAL_PREFIXES = (
 )
 
 
+def safe_json_dumps(value, *, indent: int = 2) -> str:
+    rendered = json.dumps(value, indent=indent, ensure_ascii=False)
+    try:
+        rendered.encode("utf-8")
+    except UnicodeEncodeError:
+        return json.dumps(value, indent=indent, ensure_ascii=True)
+    return rendered
+
+
 def run_git(root: Path, args: list[str]) -> str:
     try:
         result = subprocess.run(
@@ -77,11 +98,40 @@ def run_git(root: Path, args: list[str]) -> str:
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
         )
     except OSError as error:
         return str(error)
-    return "\n".join(part.strip() for part in [result.stdout, result.stderr] if part.strip())
+    return "\n".join(
+        part.decode("utf-8", errors="backslashreplace").strip()
+        for part in (result.stdout, result.stderr)
+        if part.strip()
+    )
+
+
+def run_git_bytes(root: Path, args: list[str]) -> bytes:
+    try:
+        result = subprocess.run(
+            ["git", "--no-pager", *args],
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        raise ValueError(f"git command failed: {error}") from error
+    if result.returncode != 0:
+        message = result.stderr.decode(errors="replace").strip() or "unknown git error"
+        raise ValueError(f"git {' '.join(args)} failed: {message}")
+    return result.stdout
+
+
+def require_git_repository(root: Path) -> None:
+    top_level = os.fsdecode(
+        run_git_bytes(root, ["rev-parse", "--show-toplevel"]).rstrip(b"\r\n")
+    )
+    if Path(top_level).resolve() != root.resolve():
+        raise ValueError(f"repo root must be the Git top-level directory: {top_level}")
+    run_git_bytes(root, ["rev-parse", "--verify", "HEAD^{commit}"])
 
 
 def git_output(root: Path, args: list[str]) -> str | None:
@@ -114,6 +164,20 @@ def git_commit_exists(root: Path, ref: str) -> bool:
     return result.returncode == 0
 
 
+def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "--no-pager", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=root,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def clean_target(target: str) -> str:
     target = target.strip()
     target = target.split("#", 1)[0]
@@ -132,8 +196,8 @@ def is_external_target(target: str) -> bool:
 
 
 def iter_relative_links(markdown: str):
-    for match in LINK_RE.finditer(markdown):
-        target = clean_target(match.group(1))
+    for raw_target in iter_inline_link_targets(markdown):
+        target = clean_target(raw_target)
         if not target or is_external_target(target) or target.startswith("/"):
             continue
         yield target
@@ -219,6 +283,9 @@ def summarize_update_metadata(metadata: dict | None) -> dict | None:
     source_commit = metadata.get("source_commit")
     if isinstance(source_commit, str) and source_commit.strip():
         result["source_commit"] = source_commit.strip()
+    reviewed_commit = metadata.get("reviewed_commit")
+    if isinstance(reviewed_commit, str) and reviewed_commit.strip():
+        result["reviewed_commit"] = reviewed_commit.strip()
     return result
 
 
@@ -241,60 +308,90 @@ def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
 
 
 def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str | None, str]:
+    metadata_updated_at = None
     if not symlink_parent(root, metadata_rel):
         metadata = read_json(root / metadata_rel)
         if metadata and is_structured_update_metadata(metadata):
             source_commit = metadata.get("source_commit")
-            if (
-                isinstance(source_commit, str)
+            valid_source_commit = (
+                source_commit.strip()
+                if isinstance(source_commit, str)
                 and source_commit.strip()
                 and git_commit_exists(root, source_commit.strip())
+                else None
+            )
+            reviewed_commit = metadata.get("reviewed_commit")
+            valid_reviewed_commit = (
+                reviewed_commit.strip()
+                if isinstance(reviewed_commit, str)
+                and reviewed_commit.strip()
+                and git_commit_exists(root, reviewed_commit.strip())
+                else None
+            )
+            if (
+                valid_source_commit
+                and valid_reviewed_commit
+                and git_commit_is_ancestor(root, valid_source_commit, valid_reviewed_commit)
+                and git_commit_is_ancestor(root, valid_reviewed_commit, "HEAD")
             ):
-                return source_commit.strip(), None, metadata_rel
-            return None, metadata["updated_at"].strip(), metadata_rel
+                return valid_reviewed_commit, None, f"{metadata_rel}#reviewed_commit"
+            if valid_source_commit:
+                return valid_source_commit, None, f"{metadata_rel}#source_commit"
+            metadata_updated_at = metadata["updated_at"].strip()
     source_commit = read_source_commit_from_doc(root, doc_rel)
     if source_commit and git_commit_exists(root, source_commit):
         return source_commit, None, doc_rel
+    if metadata_updated_at:
+        return None, metadata_updated_at, metadata_rel
     return None, None, "none"
 
 
-def parse_name_status(output: str | None) -> list[dict]:
-    if not output:
-        return []
-    rows = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line:
+def parse_name_status_z(output: bytes) -> list[dict]:
+    fields = output.split(b"\0")
+    rows: list[dict] = []
+    index = 0
+    while index < len(fields):
+        status_raw = fields[index].lstrip(b"\n")
+        index += 1
+        if not status_raw:
             continue
-        parts = line.split("\t")
-        status = parts[0]
-        if status.startswith("R") and len(parts) >= 3:
-            rows.append({"status": status, "path": parts[2], "old_path": parts[1]})
-        elif len(parts) >= 2:
-            rows.append({"status": status, "path": parts[1]})
+        status = status_raw.decode("ascii", errors="replace")
+        if index >= len(fields):
+            break
+        old_or_path = fields[index].decode("utf-8", errors="backslashreplace")
+        index += 1
+        if status.startswith(("R", "C")):
+            if index >= len(fields):
+                break
+            path = fields[index].decode("utf-8", errors="backslashreplace")
+            index += 1
+            rows.append({"status": status, "path": path, "old_path": old_or_path})
+        else:
+            rows.append({"status": status, "path": old_or_path})
     return rows
 
 
-def parse_status_short(output: str | None) -> list[dict]:
-    if not output:
-        return []
-    rows = []
-    for raw_line in output.splitlines():
-        line = raw_line.rstrip()
-        if not line.strip():
+def parse_status_z(output: bytes) -> list[dict]:
+    fields = output.split(b"\0")
+    rows: list[dict] = []
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if not entry:
             continue
-        if len(line) >= 3 and line[2] == " ":
-            status = line[:2].strip() or line[:2]
-            path = line[3:]
+        if len(entry) < 4 or entry[2:3] != b" ":
+            continue
+        status = entry[:2].decode("ascii", errors="replace")
+        path = entry[3:].decode("utf-8", errors="backslashreplace")
+        if "R" in status or "C" in status:
+            if index >= len(fields):
+                break
+            old_path = fields[index].decode("utf-8", errors="backslashreplace")
+            index += 1
+            rows.append({"status": status.strip() or status, "path": path, "old_path": old_path})
         else:
-            parts = line.strip().split(maxsplit=1)
-            status = parts[0]
-            path = parts[1] if len(parts) > 1 else ""
-        if " -> " in path:
-            old_path, new_path = path.split(" -> ", 1)
-            rows.append({"status": status, "path": new_path, "old_path": old_path})
-        elif path:
-            rows.append({"status": status, "path": path})
+            rows.append({"status": status.strip() or status, "path": path})
     return rows
 
 
@@ -306,26 +403,37 @@ def collect_git_changes(
     if previous_commit:
         commit_label = f"git log {previous_commit}..HEAD --name-status --oneline"
         commit_output = run_git(root, ["log", f"{previous_commit}..HEAD", "--name-status", "--oneline"])
-        since_output = run_git(root, ["diff", "--name-status", f"{previous_commit}..HEAD"])
+        since_changes = parse_name_status_z(
+            run_git_bytes(root, ["diff", "--name-status", "-z", f"{previous_commit}..HEAD"])
+        )
         since_label = f"git diff --name-status {previous_commit}..HEAD"
     elif previous_updated_at:
         commit_label = f"git log --since {previous_updated_at} --name-status --oneline"
         commit_output = run_git(root, ["log", "--since", previous_updated_at, "--name-status", "--oneline"])
-        since_output = commit_output
+        since_changes = parse_name_status_z(
+            run_git_bytes(
+                root,
+                ["log", "--since", previous_updated_at, "--format=", "--name-status", "-z"],
+            )
+        )
         since_label = commit_label
     else:
         commit_label = "git log --max-count=20 --name-status --oneline"
         commit_output = run_git(root, ["log", "--max-count=20", "--name-status", "--oneline"])
-        since_output = commit_output
+        since_changes = parse_name_status_z(
+            run_git_bytes(root, ["log", "--max-count=20", "--format=", "--name-status", "-z"])
+        )
         since_label = commit_label
-    dirty_output = run_git(root, ["diff", "--name-status", "HEAD"])
+    dirty_changes = parse_name_status_z(
+        run_git_bytes(root, ["diff", "--name-status", "-z", "HEAD"])
+    )
     return (
         commit_label,
         commit_output,
         since_label,
-        parse_name_status(since_output),
+        since_changes,
         "git diff --name-status HEAD",
-        parse_name_status(dirty_output),
+        dirty_changes,
     )
 
 
@@ -345,7 +453,7 @@ def collect_doc_sources(root: Path, docs: list[str]) -> dict[str, list[str]]:
                 rel = target_path.relative_to(root).as_posix()
             except ValueError:
                 continue
-            if rel.startswith("docs/project-context"):
+            if rel == DEFAULT_DOC or rel.startswith(f"{DEFAULT_DOC_DIR}/"):
                 continue
             if rel not in sources:
                 sources.append(rel)
@@ -388,6 +496,44 @@ def is_agent_reference_only_change(root: Path, path: str, previous_commit: str |
     old_text = git_show(root, previous_commit, path) if previous_commit else ""
     new_text = read_text(root / path)
     return strip_agent_reference(old_text) == strip_agent_reference(new_text)
+
+
+def is_agent_reference_only_history(root: Path, path: str, previous_commit: str) -> bool:
+    if path not in {"AGENTS.md", "CLAUDE.md"}:
+        return False
+    commits = run_git(
+        root, ["rev-list", "--reverse", f"{previous_commit}..HEAD", "--", path]
+    ).splitlines()
+    if not commits:
+        return False
+    for commit in commits:
+        parent = git_output(root, ["rev-parse", f"{commit}^"])
+        old_text = git_show(root, parent, path) if parent else ""
+        new_text = git_show(root, commit, path)
+        if strip_agent_reference(old_text) != strip_agent_reference(new_text):
+            return False
+    return True
+
+
+def committed_source_change_paths(root: Path, previous_commit: str) -> list[str]:
+    rows = parse_name_status_z(
+        run_git_bytes(
+            root,
+            ["log", "--format=", "--name-status", "-z", f"{previous_commit}..HEAD"],
+        )
+    )
+    changed_paths: list[str] = []
+    for row in rows:
+        for key in ("old_path", "path"):
+            path = row.get(key)
+            if not isinstance(path, str) or path in changed_paths:
+                continue
+            if is_generated_doc_path(path):
+                continue
+            if is_agent_reference_only_history(root, path, previous_commit):
+                continue
+            changed_paths.append(path)
+    return changed_paths
 
 
 def map_affected_docs(
@@ -540,14 +686,46 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
     return digest.hexdigest()
 
 
+def context_index_needs_sync(root: Path, doc_rel: str, docs: list[str]) -> bool:
+    doc_path = root / doc_rel
+    if doc_path.is_symlink() or not doc_path.is_file():
+        return False
+    markdown = read_text(doc_path)
+    if parse_frontmatter(markdown).get("mode") != "multi-page":
+        return False
+    rendered_index, errors = render_context_index(root, doc_rel, docs)
+    if errors or rendered_index is None:
+        return True
+    try:
+        _, changed = replace_context_index(markdown, rendered_index)
+    except ValueError:
+        return True
+    return changed
+
+
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
+    require_git_repository(root)
     full_head, short_head = git_head(root)
     git_status = run_git(root, ["status", "--short", "--untracked-files=all"])
-    status_changes = parse_status_short(git_status)
+    status_changes = parse_status_z(
+        run_git_bytes(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+    )
     last_update_metadata, last_update_metadata_source = load_last_update_metadata(root, metadata_rel)
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
+    current_content_hash = docs_content_hash(root, docs)
+    persisted_metadata = read_json(root / metadata_rel)
+    metadata_document_state_stale = not persisted_metadata or any(
+        persisted_metadata.get(field) != expected
+        for field, expected in {
+            "primary_doc": doc_rel,
+            "docs": docs,
+            "doc_sources": source_map,
+            "content_hash": current_content_hash,
+        }.items()
+    )
+    context_index_stale = context_index_needs_sync(root, doc_rel, docs)
     has_previous_context = previous_commit is not None or previous_updated_at is not None
     missing_last_update_warning = None
     if (root / doc_rel).exists() and not has_previous_context:
@@ -587,6 +765,17 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         for path in current_change_paths
         if is_generated_doc_path(path) and not is_generated_metadata_path(path)
     ]
+    if metadata_document_state_stale:
+        for path in generated_doc_changes:
+            if (
+                not is_generated_metadata_path(path)
+                and path not in generated_context_doc_changes
+            ):
+                generated_context_doc_changes.append(path)
+        if not generated_context_doc_changes:
+            generated_context_doc_changes.append(metadata_rel)
+    if context_index_stale and doc_rel not in generated_context_doc_changes:
+        generated_context_doc_changes.append(doc_rel)
     source_change_paths = [
         path
         for path in changed_paths
@@ -644,6 +833,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "source_change_paths": source_change_paths,
         "generated_doc_changes": generated_doc_changes,
         "generated_context_doc_changes": generated_context_doc_changes,
+        "metadata_document_state_stale": metadata_document_state_stale,
+        "context_index_stale": context_index_stale,
         "affected_docs": affected_docs,
         "unmapped_changes": unmapped_changes,
         "soft_diff_budget_warning": "; ".join(budget_warnings) if budget_warnings else None,
@@ -678,7 +869,7 @@ def format_block(output: str | None) -> list[str]:
 def format_json_block(value: dict | None) -> list[str]:
     if value is None:
         return ["  (none)"]
-    return [f"  {line}" for line in json.dumps(value, indent=2, ensure_ascii=False).splitlines()]
+    return [f"  {line}" for line in safe_json_dumps(value).splitlines()]
 
 
 def format_plan(plan: dict) -> str:
@@ -856,6 +1047,12 @@ def format_temp_plan(plan: dict) -> str:
     else:
         lines.append("- (none)")
 
+    lines.extend(["", "## Evidence-backed Relationships", ""])
+    lines.append("- (none yet; for 3+ supporting pages use: source concept -> relationship meaning -> target concept)")
+
+    lines.extend(["", "## Deferred Coverage", ""])
+    lines.append("- (none yet; record any page-budget deferral with area, source anchor, and reason)")
+
     lines.extend(["", "## Source Evidence", ""])
     doc_sources = plan.get("doc_sources", {})
     if doc_sources:
@@ -898,6 +1095,33 @@ def delete_temp_plan(root: Path, plan_rel: str) -> tuple[str, bool]:
     return f"temporary plan deleted: {plan_rel}", True
 
 
+def sync_context_index(root: Path, doc_rel: str) -> dict:
+    doc_path = root / doc_rel
+    if doc_path.is_symlink() or not doc_path.is_file():
+        raise ValueError(f"primary context document must be a regular file: {doc_rel}")
+    markdown = read_text(doc_path)
+    if parse_frontmatter(markdown).get("mode") != "multi-page":
+        return {
+            "changed": False,
+            "skipped": True,
+            "reason": "primary document is not in multi-page mode",
+            "doc": doc_rel,
+        }
+    docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
+    rendered_index, errors = render_context_index(root, doc_rel, docs)
+    if errors or rendered_index is None:
+        raise ValueError("\n".join(errors))
+    next_markdown, changed = replace_context_index(markdown, rendered_index)
+    if changed:
+        doc_path.write_text(next_markdown, encoding="utf-8")
+    return {
+        "changed": changed,
+        "skipped": False,
+        "doc": doc_rel,
+        "supporting_docs": len(docs) - 1,
+    }
+
+
 def record_metadata(
     root: Path,
     doc_rel: str,
@@ -906,39 +1130,121 @@ def record_metadata(
     if_changed: bool,
     before_hash: str | None,
 ) -> dict:
+    require_git_repository(root)
     full_head, short_head = git_head(root)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
     content_hash = docs_content_hash(root, docs)
     previous_metadata = read_json(root / metadata_rel) or {}
-    if if_changed and before_hash and before_hash == content_hash:
+    docs_unchanged = if_changed and (
+        (bool(before_hash) and before_hash == content_hash)
+        or previous_metadata.get("content_hash") == content_hash
+    )
+    previous_source_commit = previous_metadata.get("source_commit")
+    valid_previous_source_commit = (
+        previous_source_commit.strip()
+        if isinstance(previous_source_commit, str)
+        and previous_source_commit.strip()
+        and git_commit_exists(root, previous_source_commit.strip())
+        else None
+    )
+    document_source_ref = read_source_commit_from_doc(root, doc_rel)
+    valid_document_source_commit = (
+        git_output(root, ["rev-parse", document_source_ref])
+        if document_source_ref and git_commit_exists(root, document_source_ref)
+        else None
+    )
+    review_source_commit = valid_document_source_commit or valid_previous_source_commit
+    previous_reviewed_commit = previous_metadata.get("reviewed_commit")
+    valid_previous_reviewed_commit = (
+        previous_reviewed_commit.strip()
+        if isinstance(previous_reviewed_commit, str)
+        and previous_reviewed_commit.strip()
+        and review_source_commit
+        and git_commit_exists(root, previous_reviewed_commit.strip())
+        and git_commit_is_ancestor(root, review_source_commit, previous_reviewed_commit.strip())
+        and git_commit_is_ancestor(root, previous_reviewed_commit.strip(), "HEAD")
+        else None
+    )
+    previous_source_commit_short = previous_metadata.get("source_commit_short")
+    resolved_previous_source_commit_short = (
+        git_output(root, ["rev-parse", previous_source_commit_short.strip()])
+        if isinstance(previous_source_commit_short, str)
+        and previous_source_commit_short.strip()
+        and git_commit_exists(root, previous_source_commit_short.strip())
+        else None
+    )
+    source_metadata_needs_repair = bool(valid_document_source_commit) and (
+        valid_previous_source_commit != valid_document_source_commit
+        or resolved_previous_source_commit_short != valid_document_source_commit
+    )
+    review_baseline = (
+        valid_previous_reviewed_commit
+        or valid_previous_source_commit
+        or valid_document_source_commit
+    )
+    committed_source_changes = (
+        committed_source_change_paths(root, review_baseline)
+        if docs_unchanged
+        and review_baseline
+        and full_head
+        and git_output(root, ["rev-parse", review_baseline]) != full_head
+        else []
+    )
+    expected_derived_metadata = {
+        "generator": GENERATOR,
+        "generator_version": GENERATOR_VERSION,
+        "primary_doc": doc_rel,
+        "docs": docs,
+        "doc_sources": source_map,
+        "content_hash": content_hash,
+    }
+    previous_updated_at = previous_metadata.get("updated_at")
+    metadata_needs_rewrite = (
+        valid_previous_reviewed_commit is None
+        or source_metadata_needs_repair
+        or not isinstance(previous_updated_at, str)
+        or PROJECT_CONTEXT_TIMESTAMP_RE.fullmatch(previous_updated_at) is None
+        or previous_metadata.get("run_mode") not in {"init", "update"}
+        or any(
+            previous_metadata.get(field) != expected
+            for field, expected in expected_derived_metadata.items()
+        )
+    )
+
+    if docs_unchanged and not metadata_needs_rewrite and not committed_source_changes:
         return {
             "skipped": True,
-            "reason": "content_hash unchanged from before snapshot",
+            "reason": "documentation unchanged and no committed source review baseline to advance",
             "metadata_path": metadata_rel,
             "source_commit": previous_metadata.get("source_commit"),
             "source_commit_short": previous_metadata.get("source_commit_short"),
+            "reviewed_commit": previous_metadata.get("reviewed_commit"),
             "docs": docs,
             "content_hash": content_hash,
         }
-    if if_changed and previous_metadata.get("content_hash") == content_hash:
-        return {
-            "skipped": True,
-            "reason": "content_hash unchanged",
-            "metadata_path": metadata_rel,
-            "source_commit": previous_metadata.get("source_commit"),
-            "source_commit_short": previous_metadata.get("source_commit_short"),
-            "docs": docs,
-            "content_hash": content_hash,
-        }
+
     updated_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if docs_unchanged:
+        # ponytail: reviewed_commit covers committed HEAD only; add a worktree fingerprint if repeated pre-commit reviews become costly.
+        source_commit = valid_document_source_commit or valid_previous_source_commit
+        source_commit_short = (
+            git_output(root, ["rev-parse", "--short", source_commit])
+            if source_commit
+            else previous_metadata.get("source_commit_short")
+        )
+    else:
+        source_commit = full_head
+        source_commit_short = short_head
+
     metadata = {
         "generator": GENERATOR,
         "generator_version": GENERATOR_VERSION,
         "updated_at": updated_at,
         "run_mode": run_mode,
-        "source_commit": full_head,
-        "source_commit_short": short_head,
+        "source_commit": source_commit,
+        "source_commit_short": source_commit_short,
+        "reviewed_commit": full_head,
         "primary_doc": doc_rel,
         "docs": docs,
         "doc_sources": source_map,
@@ -946,19 +1252,19 @@ def record_metadata(
     }
     metadata_path = root / metadata_rel
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata_path.write_text(f"{json.dumps(metadata, indent=2, ensure_ascii=False)}\n", encoding="utf-8")
-    return metadata
+    metadata_path.write_text(f"{safe_json_dumps(metadata)}\n", encoding="utf-8")
+    return {**metadata, "review_only": True} if docs_unchanged else metadata
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
-    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; snapshot prints the current docs content hash; record writes metadata after docs update.")
+    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "sync-index", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; sync-index refreshes the deterministic multi-page router; snapshot prints the current docs content hash; record writes metadata after docs update.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Primary doc path. Default: {DEFAULT_DOC}")
     parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
     parser.add_argument("--plan-path", default=DEFAULT_TEMP_PLAN, help=f"Temporary draft plan path. Default: {DEFAULT_TEMP_PLAN}")
     parser.add_argument("--mode", choices=["init", "update"], default="update", help="Project context run mode stored in metadata.")
-    parser.add_argument("--if-changed", action="store_true", help="Do not rewrite metadata when documentation content hash is unchanged.")
+    parser.add_argument("--if-changed", action="store_true", help="Preserve the documentation source commit when docs are unchanged while recording newly reviewed commits.")
     parser.add_argument("--before-hash", help="Docs content hash captured before the run. With --if-changed, metadata is skipped when it still matches.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     args = parser.parse_args()
@@ -976,6 +1282,11 @@ def main() -> int:
         if path_error:
             print(path_error, file=sys.stderr)
             return 2
+    try:
+        require_git_repository(root)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     if args.command in {"plan", "write-plan"}:
         plan = build_plan(root, args.doc, args.metadata)
         if args.command == "write-plan":
@@ -988,7 +1299,7 @@ def main() -> int:
                 print(str(error), file=sys.stderr)
                 return 1
             if args.json:
-                print(json.dumps(
+                print(safe_json_dumps(
                     {
                         "plan_path": args.plan_path,
                         "recommended_action": plan.get("recommended_action"),
@@ -1007,16 +1318,14 @@ def main() -> int:
                         "unmapped_changes": plan.get("unmapped_changes", []),
                         "generated_context_doc_changes": plan.get("generated_context_doc_changes", []),
                         "renamed_paths": plan.get("renamed_paths", []),
-                    },
-                    indent=2,
-                    ensure_ascii=False,
+                    }
                 ))
             else:
                 print(f"draft plan written: {plan_path.relative_to(root).as_posix()}")
                 print(f"recommended_action: {plan.get('recommended_action')}")
             return 0
         if args.json:
-            print(json.dumps(plan, indent=2, ensure_ascii=False))
+            print(safe_json_dumps(plan))
         else:
             print(format_plan(plan))
         return 0
@@ -1028,16 +1337,32 @@ def main() -> int:
             print(str(error), file=sys.stderr)
             return 1
         if args.json:
-            print(json.dumps({"plan_path": args.plan_path, "deleted": deleted}, indent=2, ensure_ascii=False))
+            print(safe_json_dumps({"plan_path": args.plan_path, "deleted": deleted}))
         else:
             print(message)
+        return 0
+
+    if args.command == "sync-index":
+        try:
+            result = sync_context_index(root, args.doc)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.json:
+            print(safe_json_dumps(result))
+        elif result.get("skipped"):
+            print(f"context index unchanged: {result.get('reason')}")
+        else:
+            state = "updated" if result.get("changed") else "current"
+            print(f"context index {state}: {args.doc}")
+            print(f"supporting docs: {result.get('supporting_docs')}")
         return 0
 
     if args.command == "snapshot":
         docs = discover_docs(root, args.doc)
         content_hash = docs_content_hash(root, docs)
         if args.json:
-            print(json.dumps({"content_hash": content_hash, "docs": docs}, indent=2, ensure_ascii=False))
+            print(safe_json_dumps({"content_hash": content_hash, "docs": docs}))
         else:
             print(content_hash)
         return 0
@@ -1057,10 +1382,14 @@ def main() -> int:
 
     metadata = record_metadata(root, args.doc, args.metadata, args.mode, args.if_changed, args.before_hash)
     if args.json:
-        print(json.dumps(metadata, indent=2, ensure_ascii=False))
+        print(safe_json_dumps(metadata))
     elif metadata.get("skipped"):
         print(f"metadata unchanged: {args.metadata}")
         print(f"reason: {metadata.get('reason')}")
+    elif metadata.get("review_only"):
+        print(f"documentation unchanged; review baseline written: {args.metadata}")
+        print(f"source_commit: {metadata.get('source_commit_short') or metadata.get('source_commit')}")
+        print(f"reviewed_commit: {metadata.get('reviewed_commit')}")
     else:
         print(f"metadata written: {args.metadata}")
         print(f"source_commit: {metadata.get('source_commit_short') or metadata.get('source_commit')}")

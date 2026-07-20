@@ -1,6 +1,6 @@
 ---
 name: project-context
-description: Create, refresh, validate, or read source-grounded project context documentation for a code repository. Use for requests such as "프로젝트 컨텍스트 세팅", "적용 가능하게 세팅", "Codex 문서화", "wiki 생성", "프로젝트 문서 갱신", "$project-context", or when a repository needs durable onboarding context before implementation.
+description: Read existing or explicitly create, refresh, and validate source-grounded project context documentation for a code repository. Use when the user asks for repository project context, "프로젝트 컨텍스트 세팅", "프로젝트 컨텍스트 wiki 생성", "프로젝트 컨텍스트 문서 갱신", or invokes "$project-context". Do not trigger for ordinary implementation, debugging, or review merely because onboarding docs are missing.
 ---
 
 # Project Context
@@ -21,9 +21,11 @@ source code는 수정하지 않는다.
 
 ## 모드 결정
 
-- `chat`: 프로젝트 설명이나 작업 시작을 요청했지만 문서 생성을 명시하지 않았다. 기존 문서를 읽고 답한다. 파일과 metadata를 수정하지 않는다.
-- `init`: context 문서가 없거나 사용자가 세팅·생성을 요청했다. 문서를 만들고 `record --mode init`으로 기록한다.
-- `update`: context 문서가 있고 사용자가 갱신을 요청했거나 source 변경으로 stale하다. 영향 문서만 고치고 `record --mode update --if-changed`로 기록한다.
+write gate: 사용자가 프로젝트 컨텍스트 문서 생성·세팅·갱신을 명시했거나, 더 좁은 read-only 요청 없이 `$project-context`를 직접 실행한 경우에만 `init` 또는 `update`를 허용한다. 문서 부재·stale 또는 일반 구현·디버깅·리뷰 요청만으로 write하지 않는다.
+
+- `chat`: write gate를 충족하지 않았다. 문서가 없어도 만들지 않는다. primary만 먼저 읽고, multi-page이면 작업과 `read_when`이 맞는 하위 문서만 연다. 모든 하위 문서를 미리 읽지 않는다. 문서로 충분하면 광범위한 source 재탐색 없이 답한다. 정확한 최신 동작 확인이 필요하거나 context가 stale·모호·source와 충돌할 때만 관련 source를 좁게 확인한다. 충돌 시 현재 source가 우선이다. 파일과 metadata를 수정하지 않는다.
+- `init`: write gate를 충족했고 context 문서가 없다. 문서를 만들고 `record --mode init`으로 기록한다.
+- `update`: write gate를 충족했고 context 문서가 있다. 영향 문서만 고치고 `record --mode update --if-changed`로 기록한다.
 
 ## Helper 명령
 
@@ -32,6 +34,7 @@ python3 <skill-dir>/scripts/project_context_update.py snapshot .
 python3 <skill-dir>/scripts/project_context_update.py plan .
 python3 <skill-dir>/scripts/project_context_update.py write-plan .
 python3 <skill-dir>/scripts/project_context_update.py delete-plan .
+python3 <skill-dir>/scripts/project_context_update.py sync-index .
 python3 <skill-dir>/scripts/project_context_agents.py .
 python3 <skill-dir>/scripts/validate_project_context.py .
 python3 <skill-dir>/scripts/project_context_update.py record . --mode init|update --if-changed --before-hash <hash>
@@ -68,11 +71,17 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `review-unmapped-changes`: 기존 문서에 연결되지 않은 변경을 새 근거·새 섹션·무시 중 하나로 판단
 - `review-generated-doc-changes`: 현재 작업트리에서 context 문서가 직접 바뀌었는지 확인
 - `review-recent-history`: 이전 성공 metadata가 없어 최근 history를 기준점으로 검토
-- `no-op`: 문서를 수정하지 않고 검증만 수행
+- `no-op`: 문서는 수정하지 않는다. 변경 후 되돌린 commit까지 검토 기준점에 포함되도록 `record --if-changed`를 실행한 뒤 검증
 
 `affected_docs`, `unmapped_changes`, `renamed_paths`, `git_summary`, `soft_diff_budget_warnings`를 먼저 읽는다. 커밋 메시지만 믿지 말고 후보 source를 다시 확인한다.
 
-`source_commit`은 문서가 설명하는 source 기준점이다. 이후 context 문서와 marked agent 안내만 커밋된 경우 stale로 보지 않는다.
+`source_commit`은 문서가 실제로 설명하는 source 기준점이다. `reviewed_commit`은 문서 변경이 불필요하다고 판단한 commit까지 포함한 마지막 검토 기준점이다. 계획은 유효한 `reviewed_commit`을 우선 사용하고, 없으면 `source_commit`으로 fallback한다. 이후 context 문서와 marked agent 안내만 커밋된 경우 stale로 보지 않는다.
+
+실행 분기:
+
+- `chat`: 여기서 write 절차를 중단하고 읽기 전용으로 답한다.
+- `no-op`: `sync-index`를 포함한 문서 작성과 `_plan.md` 생성을 건너뛴다. marked agent 안내가 없거나 stale할 때만 7단계를 실행하고, 8단계에서는 `record --mode update --if-changed`와 검증만 실행한다.
+- 나머지 action: 3~8단계를 실행한다. `create-docs`만 `--mode init`, 나머지는 `--mode update`를 사용한다.
 
 ### 3. high-signal source 조사
 
@@ -93,15 +102,36 @@ init에서는 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심
 
 ### 4. 문서 모드 선택
 
-기본은 단일 `docs/project-context.md`다.
+예상 body가 8,000자 이하이고 서로 독립적으로 읽을 도메인·workflow가 2개 이하일 때만 단일 `docs/project-context.md`를 기본으로 사용한다. 8,000자를 넘거나 독립 영역이 3개 이상이면 multi-page로 전환한다.
 
-핵심 도메인·서비스·API 흐름이 4개 이상이거나 단일 문서가 탐색을 방해할 때만 `docs/project-context/*.md`를 추가한다. 초기 문서는 전체 8개 이하로 유지한다. tracked primary source가 10개 이하인 작은 repo는 기본 문서와 보조 문서 1~2개까지만 쓴다.
+multi-page primary는 전체 내용을 요약한 문서가 아니라 얇은 router다. body 목표는 2,500자 이하, hard limit은 4,000자다. 프로젝트 요약, 전역 변경 주의점, generated index, 문서화 백로그, 최소 근거만 두고 상세 workflow·testing·operation은 하위 문서로 옮긴다. 초기 문서는 전체 8개 이하로 유지한다. tracked primary source가 10개 이하인 작은 repo는 기본 문서와 보조 문서 1~2개까지만 쓴다.
+
+page budget 때문에 확인된 영역을 미루면 primary 문서의 optional `## 문서화 백로그`에 `영역 — 근거: [source](../path) — 사유: 한 줄` 형식으로 남긴다. `미확정 사항`은 사실이 불명확한 내용이고, `문서화 백로그`는 확인했지만 분량 때문에 미룬 내용이다. update에서는 백로그를 먼저 읽고, 변경된 source가 항목의 근거를 건드리면 내용을 문서화한 뒤 항목을 제거한다. 식별한 중요 영역은 본문 또는 백로그 중 하나에 둔다.
 
 multi-page일 때:
 
-- `docs/project-context.md`를 index와 읽는 순서로 사용
-- index에서 모든 하위 문서 링크
+- `docs/project-context.md`를 얇은 index와 읽는 순서로 사용하고 모든 하위 문서를 미리 읽지 않음
+- primary에 아래 marker를 정확히 한 쌍 두고 marker 내부는 직접 편집하지 않음
+
+```md
+<!-- project-context:index:start -->
+<!-- project-context:index:end -->
+```
+
+- 각 하위 문서 상단에 아래 one-line metadata를 두고 `description`, `read_when`은 각각 160자 이하로 유지
+
+```yaml
+---
+title: 결제 흐름
+description: 결제·환불·웹훅 상태 흐름
+read_when: 결제 API 변경 또는 환불 상태 디버깅
+---
+```
+
+- `sync-index`로 metadata 기반 index를 path 순서로 생성하고 모든 하위 문서 링크·설명·읽기 조건을 primary에 반영
 - 하위 문서에서 index로 돌아가는 링크
+- 하위 문서가 3개 이상이면 `_plan.md`에 `source concept -> 관계 의미 -> target concept`을 기록하고 runtime, dependency, ownership, data-flow, lifecycle 관계를 설명하는 문장 안에서 peer 문서를 링크
+- peer 관계가 없는 페이지는 더 넓은 문서로 합치거나 의도적인 standalone인지 재검토. 의미 없는 reciprocal link는 만들지 않음
 - 얇은 문서와 source map 전용 문서는 더 넓은 문서 heading으로 합침
 
 ### 5. 임시 계획 작성
@@ -122,6 +152,7 @@ python3 <skill-dir>/scripts/project_context_update.py write-plan .
 - 작업 전 확인 지점
 - 검증 방법
 - 미확정 사항
+- 문서화 백로그 (확인된 영역을 page budget 때문에 미룬 경우만)
 - 근거
 - 갱신 기록
 
@@ -136,11 +167,14 @@ mode: single-page
 ---
 ```
 
+multi-page primary는 `mode: multi-page`를 쓰고 프로젝트 요약, 작업 전 확인 지점, generated `## Context Index`, optional 문서화 백로그, 근거만 유지한다.
+
 ### 6. source-grounded 작성
 
 - 주요 주장에 실제 repo-relative Markdown source link를 붙인다.
 - 구조뿐 아니라 제품·비즈니스 규칙, 존재 이유, 변경 시 판단 기준을 기록한다.
 - 같은 개념은 한 canonical 섹션에 두고 다른 곳에서는 링크한다.
+- multi-page primary에 하위 문서의 상세 내용을 복제하지 않는다. index 설명과 `read_when`만 보고 필요한 페이지만 선택할 수 있게 한다.
 - 모든 context 문서에 `## 근거`와 실제 source link를 둔다.
 - 절대경로, secret, private URL, credential을 쓰지 않는다.
 - 파일 inventory와 commit hash 목록을 길게 남기지 않는다.
@@ -158,13 +192,14 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 - 존재하는 top-level `AGENTS.md`와 `CLAUDE.md`만 갱신한다.
 - 둘 다 없으면 top-level `AGENTS.md`를 생성한다.
 - project-context marker section을 하나로 유지한다.
-- unmarked `## Project Context` 섹션은 marked 표준 섹션으로 교체한다.
+- unmarked `## Project Context` 섹션은 사용자 소유로 보존하고 marked 표준 섹션을 별도로 유지한다.
 - nested instruction 파일은 건드리지 않는다.
 - 주변 사용자 지침은 보존한다.
 
 ### 8. metadata 기록과 검증
 
 ```bash
+python3 <skill-dir>/scripts/project_context_update.py sync-index .
 python3 <skill-dir>/scripts/project_context_update.py delete-plan .
 python3 <skill-dir>/scripts/project_context_update.py record . \
   --mode init \
@@ -173,24 +208,29 @@ python3 <skill-dir>/scripts/project_context_update.py record . \
 python3 <skill-dir>/scripts/validate_project_context.py .
 ```
 
-기존 문서 갱신은 `--mode update`를 사용한다.
+true `no-op`에서는 위 `sync-index`와 `delete-plan`을 생략한다.
+
+`create-docs`는 `--mode init`, 기존 문서의 update/review/no-op은 `--mode update`를 사용한다.
 
 metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기록한다.
 
 - `generator`, `generator_version`
 - `updated_at`, `run_mode`
-- `source_commit`, `source_commit_short`
+- `source_commit`, `source_commit_short`, `reviewed_commit`
 - `primary_doc`, `docs`, `doc_sources`
 - `content_hash`
 
-실제 문서 hash가 바뀌지 않으면 metadata를 갱신하지 않는다. agent 안내만 바뀐 경우에도 metadata를 갱신하지 않는다.
+문서가 바뀌면 `source_commit`과 `reviewed_commit`을 현재 `HEAD`로 기록한다. committed source 변경을 검토했지만 문서 변경이 불필요하면 `source_commit`은 보존하고 `reviewed_commit`만 현재 `HEAD`로 전진시킨다. 현재 작업트리의 미커밋 변경은 commit 기준점으로 승인하지 않으므로 계속 갱신 계획에 나타날 수 있다. context 문서·metadata·marked agent 안내만 바뀐 경우에는 metadata를 갱신하지 않는다.
 
 검증 기준:
 
 - primary 문서와 required frontmatter 존재
 - metadata 구조와 content hash 일치
-- `source_commit`이 Git에서 조회 가능
+- `source_commit`과 `reviewed_commit`이 Git에서 조회 가능
 - mode와 실제 문서 수 일치
+- multi-page 하위 문서의 `title`, `description`, `read_when` metadata 완전
+- generated index가 하위 문서 metadata와 정확히 일치
+- multi-page primary body 4,000자 이하. single-page는 8,000자 초과 시 분리 경고
 - 모든 source link가 repo 내부 실제 경로를 가리킴
 - 모든 문서에 `## 근거`와 외부 source evidence 존재
 - index↔하위 문서 링크 완전

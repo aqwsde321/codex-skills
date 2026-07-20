@@ -5,6 +5,7 @@ import argparse
 import errno
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,23 +13,39 @@ from pathlib import Path
 from urllib.parse import unquote
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from project_context_index import (  # noqa: E402
+    FRONTMATTER_RE,
+    INDEX_END_MARKER,
+    INDEX_START_MARKER,
+    extract_context_index,
+    parse_frontmatter,
+    render_context_index,
+)
+from project_context_markdown import iter_inline_link_targets  # noqa: E402
+
+
 DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
+CURRENT_GENERATOR_VERSION = "20"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
 MAX_INITIAL_DOCS = 8
 SMALL_REPO_SOURCE_FILE_LIMIT = 10
 SMALL_REPO_DOC_LIMIT = 3
 MIN_SUBPAGE_BODY_CHARS = 500
 MIN_SINGLE_FILE_SECTION_CHARS = 1500
-LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+MAX_MULTI_PAGE_PRIMARY_BODY_CHARS = 4000
+MAX_SINGLE_PAGE_BODY_CHARS = 8000
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
-FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/var/folders)/[^\s)`>]+")
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
@@ -64,10 +81,14 @@ TESTING_GUIDANCE_TEXT = "testing guidance"
 SOURCE_MAPS_TEXT = "source maps"
 FOLLOW_LINKS_TEXT = "follow its links"
 CODE_DISCOVERY_TEXT = "code discovery"
+ORDINARY_PROJECT_QUESTIONS_TEXT = "ordinary project questions"
+DO_NOT_PRELOAD_TEXT = "do not preload every supporting page"
+READ_WHEN_TEXT = "read_when"
+EXACT_IMPLEMENTATION_VERIFICATION_TEXT = "exact implementation verification"
+CURRENT_SOURCE_AUTHORITATIVE_TEXT = "current source remains authoritative"
 SKILL_TRIGGER_TEXT = "$project-context"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
-PROJECT_CONTEXT_SECTION_RE = re.compile(r"^##\s+Project Context\s*$.*?(?=^##\s+|\Z)", re.MULTILINE | re.DOTALL)
 PRIMARY_SOURCE_SUFFIXES = {
     ".c",
     ".cc",
@@ -141,9 +162,32 @@ def git_resolve_commit(root: Path, ref: str) -> str | None:
     return git_output(root, ["rev-parse", "--verify", f"{ref}^{{commit}}"])
 
 
+def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "--no-pager", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=root,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def git_tracked_files(root: Path) -> list[str]:
-    output = git_output(root, ["ls-files"])
-    return output.splitlines() if output else []
+    try:
+        result = subprocess.run(
+            ["git", "--no-pager", "ls-files", "-z"],
+            cwd=root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
 def is_external_target(target: str) -> bool:
@@ -164,16 +208,16 @@ def clean_target(target: str) -> str:
 
 
 def iter_relative_links(markdown: str):
-    for match in LINK_RE.finditer(markdown):
-        target = clean_target(match.group(1))
+    for raw_target in iter_inline_link_targets(markdown):
+        target = clean_target(raw_target)
         if not target or is_external_target(target) or target.startswith("/"):
             continue
         yield target
 
 
 def iter_markdown_links(markdown: str):
-    for match in LINK_RE.finditer(markdown):
-        target = clean_target(match.group(1))
+    for raw_target in iter_inline_link_targets(markdown):
+        target = clean_target(raw_target)
         if target:
             yield target
 
@@ -191,6 +235,28 @@ def discover_docs(root: Path, primary_doc: str) -> list[str]:
     return docs
 
 
+def collect_doc_sources(root: Path, docs: list[str]) -> dict[str, list[str]]:
+    source_map: dict[str, list[str]] = {}
+    for doc in docs:
+        doc_path = root / doc
+        if doc_path.is_symlink() or not doc_path.is_file():
+            source_map[doc] = []
+            continue
+        sources: list[str] = []
+        markdown = doc_path.read_text(encoding="utf-8", errors="replace")
+        for link in iter_relative_links(markdown):
+            target_path = (doc_path.parent / link).resolve()
+            try:
+                rel = target_path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if is_context_doc_rel(rel) or rel in sources:
+                continue
+            sources.append(rel)
+        source_map[doc] = sources
+    return source_map
+
+
 def read_json(path: Path) -> tuple[dict | None, str | None]:
     if path.is_symlink():
         return None, "metadata must not be a symlink"
@@ -204,19 +270,6 @@ def read_json(path: Path) -> tuple[dict | None, str | None]:
     if not isinstance(value, dict):
         return None, "metadata root must be an object"
     return value, None
-
-
-def parse_frontmatter(markdown: str) -> dict[str, str]:
-    match = FRONTMATTER_RE.match(markdown)
-    if not match:
-        return {}
-    fields: dict[str, str] = {}
-    for line in match.group(0).splitlines()[1:-1]:
-        key, separator, value = line.partition(":")
-        if not separator:
-            continue
-        fields[key.strip()] = value.strip().strip("'\"")
-    return fields
 
 
 def validate_repo_relative_path(label: str, value: str) -> str | None:
@@ -448,7 +501,14 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and doc_rel != TEMP_PLAN and len(body) < MIN_SUBPAGE_BODY_CHARS:
         warnings.append(f"{doc_rel}: thin page; merge into {DEFAULT_DOC} or expand with source-grounded guidance")
     if doc_rel == DEFAULT_DOC:
-        for section_name, pattern in PRIMARY_DOC_SECTION_PATTERNS.items():
+        section_patterns = PRIMARY_DOC_SECTION_PATTERNS
+        if frontmatter.get("mode") == "multi-page":
+            section_patterns = {
+                name: pattern
+                for name, pattern in PRIMARY_DOC_SECTION_PATTERNS.items()
+                if name in {"repository overview", "change guidance"}
+            }
+        for section_name, pattern in section_patterns.items():
             if not pattern.search(markdown):
                 warnings.append(f"{doc_rel}: primary doc should include {section_name} section")
 
@@ -509,6 +569,28 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         elif resolved_source_commit and resolved_source_commit_short != resolved_source_commit:
             errors.append(f"{DEFAULT_METADATA}: source_commit_short must resolve to source_commit")
 
+    reviewed_commit_ref = metadata.get("reviewed_commit")
+    resolved_reviewed_commit = None
+    if "reviewed_commit" not in metadata:
+        message = f"{DEFAULT_METADATA}: missing reviewed_commit; run project_context_update.py record"
+        if generator_version == "18":
+            warnings.append(message)
+        else:
+            errors.append(message)
+    elif not isinstance(reviewed_commit_ref, str) or not reviewed_commit_ref.strip():
+        errors.append(f"{DEFAULT_METADATA}: reviewed_commit must be a non-empty string")
+    else:
+        resolved_reviewed_commit = git_resolve_commit(root, reviewed_commit_ref.strip())
+        if not resolved_reviewed_commit:
+            errors.append(f"{DEFAULT_METADATA}: reviewed_commit does not exist in git: {reviewed_commit_ref.strip()}")
+        elif resolved_source_commit and (
+            not git_commit_is_ancestor(root, resolved_source_commit, resolved_reviewed_commit)
+            or not git_commit_is_ancestor(root, resolved_reviewed_commit, "HEAD")
+        ):
+            errors.append(
+                f"{DEFAULT_METADATA}: reviewed_commit must be between source_commit and HEAD"
+            )
+
     primary_path = root / primary_doc
     if resolved_source_commit and primary_path.is_file() and not primary_path.is_symlink():
         primary_markdown = primary_path.read_text(encoding="utf-8", errors="replace")
@@ -547,6 +629,14 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         errors.append(f"{DEFAULT_METADATA}: doc_sources must map document paths to source path lists")
     elif sorted(doc_sources) != sorted(docs):
         errors.append(f"{DEFAULT_METADATA}: doc_sources keys must match current context documents")
+    else:
+        expected_doc_sources = collect_doc_sources(root, docs)
+        normalized_actual = {doc: sorted(set(sources)) for doc, sources in doc_sources.items()}
+        normalized_expected = {
+            doc: sorted(set(sources)) for doc, sources in expected_doc_sources.items()
+        }
+        if normalized_actual != normalized_expected:
+            errors.append(f"{DEFAULT_METADATA}: doc_sources do not match current document source links")
 
     return errors, warnings
 
@@ -577,6 +667,63 @@ def validate_index_links(root: Path, doc_rel: str, docs: list[str]) -> tuple[lis
     return errors, warnings
 
 
+def validate_deterministic_context_index(
+    root: Path,
+    doc_rel: str,
+    docs: list[str],
+) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    primary_path = root / doc_rel
+    if primary_path.is_symlink() or not primary_path.is_file():
+        return errors, warnings
+    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
+    mode = parse_frontmatter(markdown).get("mode")
+    if mode != "multi-page":
+        if INDEX_START_MARKER in markdown or INDEX_END_MARKER in markdown:
+            warnings.append(f"{doc_rel}: single-page document should not contain context index markers")
+        return errors, warnings
+
+    current_index, marker_errors = extract_context_index(markdown)
+    errors.extend(f"{doc_rel}: {error}" for error in marker_errors)
+    expected_index, metadata_errors = render_context_index(root, doc_rel, docs)
+    errors.extend(metadata_errors)
+    if current_index is not None and expected_index is not None and current_index != expected_index:
+        errors.append(f"{doc_rel}: deterministic context index is stale; run project_context_update.py sync-index")
+    return errors, warnings
+
+
+def validate_context_relationships(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    subdocs = [doc for doc in docs if doc != doc_rel]
+    if len(subdocs) < 3:
+        return errors, warnings
+
+    subdoc_set = set(subdocs)
+    related_subdocs: set[str] = set()
+    for subdoc in subdocs:
+        subdoc_path = root / subdoc
+        if subdoc_path.is_symlink() or not subdoc_path.is_file():
+            continue
+        markdown = subdoc_path.read_text(encoding="utf-8", errors="replace")
+        for link in iter_relative_links(markdown):
+            target_path = (subdoc_path.parent / link).resolve()
+            try:
+                target = target_path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if target in subdoc_set and target != subdoc:
+                related_subdocs.update((subdoc, target))
+
+    for subdoc in sorted(subdoc_set - related_subdocs):
+        warnings.append(
+            f"{subdoc}: isolated from peer context pages; add an evidence-backed relationship link, "
+            "merge it, or review whether it is intentionally standalone"
+        )
+    return errors, warnings
+
+
 def validate_primary_mode(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
     primary_path = root / doc_rel
     if primary_path.is_symlink() or not primary_path.exists() or not primary_path.is_file():
@@ -587,8 +734,30 @@ def validate_primary_mode(root: Path, doc_rel: str, docs: list[str]) -> tuple[li
         return [], []
     expected_mode = "multi-page" if any(doc != doc_rel for doc in docs) else "single-page"
     if mode != expected_mode:
-        return [], [f"{doc_rel}: metadata mode should be {expected_mode} for {len(docs)} context document(s)"]
+        return [f"{doc_rel}: metadata mode must be {expected_mode} for {len(docs)} context document(s)"], []
     return [], []
+
+
+def validate_primary_size(root: Path, doc_rel: str) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    primary_path = root / doc_rel
+    if primary_path.is_symlink() or not primary_path.is_file():
+        return errors, warnings
+    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
+    mode = parse_frontmatter(markdown).get("mode")
+    body_length = len(FRONTMATTER_RE.sub("", markdown).strip())
+    if mode == "multi-page" and body_length > MAX_MULTI_PAGE_PRIMARY_BODY_CHARS:
+        errors.append(
+            f"{doc_rel}: multi-page primary body has {body_length} characters; "
+            f"keep the router at or below {MAX_MULTI_PAGE_PRIMARY_BODY_CHARS}"
+        )
+    elif mode == "single-page" and body_length > MAX_SINGLE_PAGE_BODY_CHARS:
+        warnings.append(
+            f"{doc_rel}: single-page body has {body_length} characters; "
+            f"split into indexed supporting pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
+        )
+    return errors, warnings
 
 
 def doc_body_length(root: Path, doc_rel: str) -> int:
@@ -641,6 +810,11 @@ def is_semantically_current_agent_section(section: str) -> bool:
         and SOURCE_MAPS_TEXT in section
         and FOLLOW_LINKS_TEXT in section
         and CODE_DISCOVERY_TEXT in section
+        and ORDINARY_PROJECT_QUESTIONS_TEXT in section
+        and DO_NOT_PRELOAD_TEXT in section
+        and READ_WHEN_TEXT in section
+        and EXACT_IMPLEMENTATION_VERIFICATION_TEXT in section
+        and CURRENT_SOURCE_AUTHORITATIVE_TEXT in section
         and SKILL_TRIGGER_TEXT in section
     )
 
@@ -672,40 +846,53 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     index_errors, index_warnings = validate_index_links(root, doc_rel, docs)
     errors.extend(index_errors)
     warnings.extend(index_warnings)
+    deterministic_index_errors, deterministic_index_warnings = validate_deterministic_context_index(
+        root, doc_rel, docs
+    )
+    errors.extend(deterministic_index_errors)
+    warnings.extend(deterministic_index_warnings)
+    relationship_errors, relationship_warnings = validate_context_relationships(root, doc_rel, docs)
+    errors.extend(relationship_errors)
+    warnings.extend(relationship_warnings)
     mode_errors, mode_warnings = validate_primary_mode(root, doc_rel, docs)
     errors.extend(mode_errors)
     warnings.extend(mode_warnings)
+    size_errors, size_warnings = validate_primary_size(root, doc_rel)
+    errors.extend(size_errors)
+    warnings.extend(size_warnings)
     section_errors, section_warnings = validate_section_directories(root, docs)
     errors.extend(section_errors)
     warnings.extend(section_warnings)
 
     agent_files = ("AGENTS.md", "CLAUDE.md")
-    existing_agent_files = [agent_file for agent_file in agent_files if (root / agent_file).exists()]
+    existing_agent_files = [
+        agent_file
+        for agent_file in agent_files
+        if (root / agent_file).exists() or (root / agent_file).is_symlink()
+    ]
     if not existing_agent_files:
-        warnings.append("missing AGENTS.md or CLAUDE.md project context reference")
+        errors.append("missing AGENTS.md or CLAUDE.md project context reference")
 
     for agent_file in existing_agent_files:
         agent_path = root / agent_file
+        if agent_path.is_symlink():
+            errors.append(f"{agent_file} must not be a symlink")
+            continue
         if not agent_path.is_file():
-            warnings.append(f"{agent_file} is not a file")
+            errors.append(f"{agent_file} is not a file")
             continue
         agent_text = agent_path.read_text(encoding="utf-8", errors="replace")
         start_count = agent_text.count(AGENT_START_MARKER)
         end_count = agent_text.count(AGENT_END_MARKER)
         if CONTEXT_DOC_TEXT not in agent_text:
-            warnings.append(f"{agent_file} does not mention {CONTEXT_DOC_TEXT}")
+            errors.append(f"{agent_file} does not mention {CONTEXT_DOC_TEXT}")
         if start_count != 1 or end_count != 1:
-            warnings.append(f"{agent_file} project context reference should have exactly one marked section")
+            errors.append(f"{agent_file} project context reference must have exactly one marked section")
         marked_section = marked_agent_section(agent_text)
-        if marked_section is not None and not is_semantically_current_agent_section(marked_section):
-            warnings.append(f"{agent_file} project context reference is stale; run project_context_agents.py")
-        marker_start = agent_text.find(AGENT_START_MARKER)
-        marker_end = agent_text.find(AGENT_END_MARKER)
-        for section_match in PROJECT_CONTEXT_SECTION_RE.finditer(agent_text):
-            marked = marker_start != -1 and marker_end != -1 and marker_start < section_match.start() < marker_end
-            if not marked:
-                warnings.append(f"{agent_file} has unmarked Project Context section; run project_context_agents.py")
-                break
+        if marked_section is None:
+            errors.append(f"{agent_file} project context marker section is malformed")
+        elif not is_semantically_current_agent_section(marked_section):
+            errors.append(f"{agent_file} project context reference is stale; run project_context_agents.py")
     if errors:
         return 1, errors, warnings
     return 0, [f"project context valid: {len(docs)} document(s)"], warnings
