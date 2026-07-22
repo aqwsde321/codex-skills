@@ -283,7 +283,7 @@ def render_context_indexes(
     rendered: dict[str, str] = {
         primary_doc: _render_index(
             home_entries,
-            heading="Context Index",
+            heading="컨텍스트 인덱스",
             intro="작업과 `읽을 때`가 맞는 영역만 연다.",
         )
     }
@@ -303,7 +303,7 @@ def render_context_indexes(
         errors.extend(entry_errors)
         rendered[index_doc] = _render_index(
             entries,
-            heading="Concepts",
+            heading="개념 문서",
             intro="작업 목적과 `읽을 때`가 맞는 개념 문서만 연다.",
         )
     return (None, errors) if errors else (rendered, [])

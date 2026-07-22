@@ -3,7 +3,7 @@ name: project-context
 description: Read existing or explicitly create, refresh, and validate source-grounded project context documentation for a code repository. Use when the user asks for repository project context, "프로젝트 컨텍스트 세팅", "프로젝트 컨텍스트 wiki 생성", "프로젝트 컨텍스트 문서 갱신", or invokes "$project-context". Do not trigger for ordinary implementation, debugging, or review merely because onboarding docs are missing.
 ---
 
-# Project Context
+# 프로젝트 컨텍스트
 
 ## 목적
 
@@ -37,7 +37,7 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 - `init`: write gate가 열렸고 홈 문서가 없다. 위키를 생성하고 `finalize --mode init`으로 기록한다.
 - `update`: write gate가 열렸고 홈 문서가 있다. 영향 page와 필요한 1-hop 후보만 검토하고 `finalize --mode update --if-changed`로 기록한다.
 
-## Reference routing
+## 참조 문서
 
 `chat`에서 구조 해석이 필요하면 [wiki-model.md](references/wiki-model.md)만 읽는다.
 
@@ -55,58 +55,29 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 - 모든 concept는 `type`, `title`, `description`, `read_when` frontmatter와 `## 근거` source link를 가진다.
 - area index는 helper가 관리한다. generated marker 내부를 직접 편집하지 않는다.
 - 관련 concept는 관계 의미가 드러나는 문장으로 연결한다. 링크 개수는 강제하지 않는다.
-- `source_commit`은 문서가 설명하는 source 기준점, `reviewed_commit`은 변경 불필요까지 확인한 기준점이다.
+- 홈의 `source_commit`은 위키가 설명하는 source 기준점, metadata의 `reviewed_commit`은 변경 불필요까지 확인한 기준점이다.
 - source와 연결되지 않은 변경은 문서화, 홈 backlog, 이유 있는 ignore 중 하나로 해소한다.
 - page hash, source map, index는 현재 파일과 일치해야 한다.
 - warning은 보고 대상이다. error 또는 non-zero exit는 완료 실패다.
 
-## 실행 골격
+## 실행 순서
 
-repo root를 먼저 확인한다.
+`init`과 `update`의 정확한 명령과 실패 복구 절차는 [갱신 절차](references/update-workflow.md)만 따른다. 이 파일에 명령을 복제하지 않는다.
 
-```bash
-git rev-parse --show-toplevel
-git rev-parse --short HEAD
-git status --short --untracked-files=all
-```
+핵심 순서:
 
-write run은 snapshot과 plan으로 시작한다.
-모든 helper는 `-B`로 실행해 설치된 skill tree에 bytecode cache를 남기지 않는다.
+1. Git root·HEAD·worktree 확인
+2. 문서 snapshot과 변경 plan 생성
+3. 필요하면 legacy migration dry-run 후 적용하고 다시 계획
+4. 문서 변경 run만 `_plan.md` 생성
+5. 영향 page와 필요한 1-hop 후보 조사·작성
+6. agent 안내 갱신
+7. finalize로 index·resolution·metadata 원자 확정
+8. 최종 validator 실행
 
-```bash
-PROJECT_CONTEXT_BEFORE_HASH="$(python3 -B <skill-dir>/scripts/project_context_update.py snapshot .)"
-python3 -B <skill-dir>/scripts/project_context_update.py plan .
-```
+문서가 바뀌는 finalize에서는 생성 문서와 agent marker 외 source worktree가 clean해야 한다. dirty source는 먼저 commit, stash 또는 복원한다. true `no-op`은 문서와 `_plan.md`를 만들지 않지만 agent 안내 확인과 review 기준점 확정은 수행한다.
 
-legacy schema나 평면 page가 있으면 migration dry-run을 먼저 확인한다.
-
-```bash
-python3 -B <skill-dir>/scripts/project_context_update.py migrate .
-python3 -B <skill-dir>/scripts/project_context_update.py migrate . --apply --mode update
-```
-
-migration 후 snapshot과 plan을 다시 실행한다. migration은 구조만 옮기며 아직 검토하지 않은 source commit을 승인하지 않는다.
-
-문서 변경이 필요한 run은 임시 계획을 만든다.
-
-```bash
-python3 -B <skill-dir>/scripts/project_context_update.py write-plan .
-```
-
-문서 작성 뒤 agent 안내를 보장하고 finalize한다.
-
-```bash
-python3 -B <skill-dir>/scripts/project_context_agents.py .
-python3 -B <skill-dir>/scripts/project_context_update.py finalize . \
-  --mode <init|update> \
-  --if-changed \
-  --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
-python3 -B <skill-dir>/scripts/validate_project_context.py .
-```
-
-true `no-op`은 문서와 `_plan.md`를 만들지 않지만 agent 안내 확인과 `finalize --mode update --if-changed`는 실행한다.
-
-## Helper 계약
+## 도우미 계약
 
 - `plan`: source 변경→영향 page, 변경 page→semantic 1-hop 후보, unmapped 변경, 구조 오류를 출력
 - `write-plan`: managed `_plan.md` 생성

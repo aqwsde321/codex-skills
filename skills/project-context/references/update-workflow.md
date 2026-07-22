@@ -1,4 +1,4 @@
-# Update workflow
+# 갱신 절차
 
 ## 1. 저장소와 기준점 확인
 
@@ -19,7 +19,7 @@ PROJECT_CONTEXT_BEFORE_HASH="$(python3 -B <skill-dir>/scripts/project_context_up
 python3 -B <skill-dir>/scripts/project_context_update.py plan .
 ```
 
-## 2. Plan 해석
+## 2. 계획 해석
 
 - `create-docs`: 홈과 필요한 concept 생성
 - `migrate-wiki-schema`: migration dry-run 확인 후 apply하고 snapshot·plan 재실행
@@ -32,7 +32,7 @@ python3 -B <skill-dir>/scripts/project_context_update.py plan .
 
 `recommended_action`은 주 경로다. `required_actions`는 모두 수행한다. `related_review_candidates`는 incoming/outgoing semantic 1-hop page다. 읽고 실제 영향이 있을 때만 수정한다.
 
-## 3. Legacy migration
+## 3. 기존 문서 마이그레이션
 
 ```bash
 python3 -B <skill-dir>/scripts/project_context_update.py migrate .
@@ -61,9 +61,11 @@ source link를 추가한 documented 항목은 finalize가 자동 확인한다. p
 
 ## 5. 문서 작성
 
-affected page와 필요한 1-hop 후보 source만 조사한다. rename은 old/new path를 함께 확인한다. 홈·concept의 `source_commit`은 실제 설명 기준점과 맞춘다. index marker는 건드리지 않는다.
+affected page와 필요한 1-hop 후보 source만 조사한다. rename은 old/new path를 함께 확인한다. 홈의 `source_commit`만 실제 설명 기준점과 맞춘다. concept에는 page별 `source_commit`을 넣지 않는다. index marker는 건드리지 않는다.
 
-## 6. Agent 안내
+문서가 바뀌면 finalize 전에 생성 문서와 agent marker 외 source worktree를 clean하게 만든다. dirty source를 설명한 문서는 commit 기준점으로 증명할 수 없으므로 finalize가 거부한다.
+
+## 6. 에이전트 안내
 
 ```bash
 python3 -B <skill-dir>/scripts/project_context_agents.py .
@@ -71,7 +73,7 @@ python3 -B <skill-dir>/scripts/project_context_agents.py .
 
 기존 top-level `AGENTS.md`, `CLAUDE.md`만 갱신한다. 둘 다 없으면 `AGENTS.md`를 만든다. marked 섹션만 관리하고 unmarked 지침과 nested 파일은 보존한다.
 
-## 7. Finalize
+## 7. 최종 확정
 
 ```bash
 python3 -B <skill-dir>/scripts/project_context_update.py finalize . \
@@ -83,13 +85,14 @@ python3 -B <skill-dir>/scripts/validate_project_context.py .
 
 finalize 순서:
 
-1. 전체 tree에서 index 동기화
-2. 현재 plan과 unmapped resolution 확인
-3. page/source/hash metadata candidate 생성
-4. candidate로 전체 검증
-5. `_plan.md` 안전 삭제
-6. metadata 원자 교체
-7. on-disk 최종 검증
+1. dirty source와 문서 변경 조합 거부
+2. 전체 tree에서 index preflight 후 동기화
+3. 현재 plan과 unmapped resolution 확인
+4. page/source/hash metadata candidate 생성
+5. candidate로 전체 검증
+6. `_plan.md` 안전 삭제
+7. metadata 원자 교체
+8. on-disk 최종 검증
 
 candidate 또는 최종 검증이 실패하면 기존 metadata 기준점을 보존한다. metadata 교체 뒤 실패하면 metadata와 plan을 복구한다.
 

@@ -1039,19 +1039,19 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(status, "current")
         self.assertFalse(changed)
         self.assertEqual((self.root / "AGENTS.md").read_text(encoding="utf-8"), first)
-        self.assertIn("ordinary project questions", first)
-        self.assertIn("follow area indexes", first)
-        self.assertIn("do not preload every concept page", first)
+        self.assertIn("일반적인 프로젝트 질문", first)
+        self.assertIn("영역 인덱스", first)
+        self.assertIn("모든 개념 문서를 미리 읽지 않는다", first)
         self.assertIn("read_when", first)
-        self.assertIn("exact implementation verification", first)
-        self.assertIn("current source remains authoritative", first)
-        self.assertIn("repository instructions for code discovery", first)
-        self.assertIn("explicitly requests creation or refresh", first)
-        self.assertIn("missing or stale context alone does not authorize writes", first)
+        self.assertIn("정확한 구현 확인", first)
+        self.assertIn("현재 소스가 항상 우선", first)
+        self.assertIn("저장소의 코드 탐색 지침", first)
+        self.assertIn("생성이나 갱신을 명시적으로 요청", first)
+        self.assertIn("문서가 없거나 오래됐다는 이유만으로 쓰기 권한이 생기지 않는다", first)
 
     def test_old_agent_section_is_replaced_by_context_first_guidance(self):
         stale_section = project_context_agents.SECTION.replace(
-            "ordinary project questions", "routine project questions"
+            "일반적인 프로젝트 질문", "일상적인 프로젝트 질문"
         )
 
         next_text, changed = project_context_agents.replace_marked_section(stale_section)
@@ -1064,8 +1064,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
     def test_agent_section_without_write_authority_guard_is_replaced(self):
         stale_section = project_context_agents.SECTION.replace(
-            "missing or stale context alone does not authorize writes",
-            "stale context should be refreshed",
+            "문서가 없거나 오래됐다는 이유만으로 쓰기 권한이 생기지 않는다",
+            "오래된 문서는 자동으로 갱신한다",
         )
 
         next_text, changed = project_context_agents.replace_marked_section(stale_section)
@@ -2228,6 +2228,20 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertEqual(list(copied_scripts.rglob("*.pyc")), [])
         self.assertEqual(list(copied_scripts.rglob("__pycache__")), [])
+
+    def test_skill_router_delegates_commands_to_single_workflow_reference(self):
+        skill_root = SCRIPT_ROOT.parent
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        workflow = (skill_root / "references" / "update-workflow.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("project_context_update.py", skill)
+        self.assertNotIn("project_context_agents.py", skill)
+        self.assertIn("project_context_update.py snapshot", workflow)
+        self.assertIn("project_context_update.py finalize", workflow)
+        self.assertIn("홈의 `source_commit`만", workflow)
+        self.assertNotIn("홈·concept의 `source_commit`", workflow)
 
     def test_git_paths_are_lossless_for_unicode_arrow_and_rename(self):
         unicode_path = self.root / "한글.py"

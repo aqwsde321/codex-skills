@@ -28,16 +28,16 @@ MARKED_SECTION_RE = re.compile(
     re.DOTALL,
 )
 SECTION = f"""{START_MARKER}
-## Project Context
+## 프로젝트 컨텍스트
 
-This repository has Codex-native project context documentation at `docs/project-context.md`.
+이 저장소의 Codex용 프로젝트 컨텍스트 문서는 `docs/project-context.md`에 있다.
 
-Start here:
+다음 문서에서 시작한다.
 
-- [Project context](docs/project-context.md)
+- [프로젝트 컨텍스트](docs/project-context.md)
 
-Project context includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
-For ordinary project questions, read the project context first and follow its links only as relevant. Read the home page first, follow area indexes, and do not preload every concept page. Open only concept pages whose `read_when` guidance matches the task. When context is missing, stale, ambiguous, or exact implementation verification is required, inspect the relevant source; current source remains authoritative. Follow repository instructions for code discovery. Run `$project-context` to refresh documentation only when the user explicitly requests creation or refresh, or directly invokes the skill without a narrower read-only request; missing or stale context alone does not authorize writes.
+프로젝트 컨텍스트는 저장소 개요, 아키텍처, 주요 흐름, 도메인 개념, 운영, 연동, 검증 방법과 소스 근거를 담는다.
+일반적인 프로젝트 질문에서는 프로젝트 컨텍스트를 먼저 읽고 필요한 링크만 따른다. 홈에서 시작해 영역 인덱스를 거치며 모든 개념 문서를 미리 읽지 않는다. 작업과 `read_when`이 맞는 문서만 연다. 컨텍스트가 없거나 오래됐거나 모호하거나 정확한 구현 확인이 필요하면 관련 소스를 확인한다. 현재 소스가 항상 우선하며 저장소의 코드 탐색 지침을 따른다. 사용자가 생성이나 갱신을 명시적으로 요청했거나 더 좁은 읽기 전용 요청 없이 `$project-context`를 직접 호출했을 때만 문서를 갱신한다. 문서가 없거나 오래됐다는 이유만으로 쓰기 권한이 생기지 않는다.
 {END_MARKER}
 """
 
