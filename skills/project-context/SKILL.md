@@ -75,7 +75,7 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 7. finalize로 index·resolution·metadata 원자 확정
 8. 최종 validator 실행
 
-문서가 바뀌는 finalize에서는 생성 문서와 agent marker 외 source worktree가 clean해야 한다. dirty source는 먼저 commit, stash 또는 복원한다. true `no-op`은 문서와 `_plan.md`를 만들지 않지만 agent 안내 확인과 review 기준점 확정은 수행한다.
+문서 작성 전에 생성 문서와 agent marker 외 source worktree가 clean해야 한다. dirty source가 있으면 `_plan.md`나 문서를 만들지 말고 먼저 commit, stash 또는 복원하도록 보고한다. true `no-op`은 문서와 `_plan.md`를 만들지 않지만 agent 안내 확인과 review 기준점 확정은 수행한다.
 
 ## 도우미 계약
 

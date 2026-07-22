@@ -2216,6 +2216,11 @@ read_when: 실행 흐름 변경 또는 동작 검증
             "project_context_agents.py",
             "validate_project_context.py",
         ):
+            source = (copied_scripts / script).read_text(encoding="utf-8")
+            self.assertIn(
+                "from __future__ import annotations",
+                source.splitlines()[:3],
+            )
             completed = subprocess.run(
                 [sys.executable, str(copied_scripts / script), "--help"],
                 cwd=self.root,
@@ -2240,6 +2245,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertNotIn("project_context_agents.py", skill)
         self.assertIn("project_context_update.py snapshot", workflow)
         self.assertIn("project_context_update.py finalize", workflow)
+        self.assertIn("`_plan.md`나 문서를 만들기 전에", workflow)
         self.assertIn("홈의 `source_commit`만", workflow)
         self.assertNotIn("홈·concept의 `source_commit`", workflow)
 

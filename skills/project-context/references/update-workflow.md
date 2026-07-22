@@ -19,6 +19,8 @@ PROJECT_CONTEXT_BEFORE_HASH="$(python3 -B <skill-dir>/scripts/project_context_up
 python3 -B <skill-dir>/scripts/project_context_update.py plan .
 ```
 
+plan에 dirty source 변경이 있고 문서 갱신이 필요하면 여기서 중단한다. `_plan.md`나 문서를 만들기 전에 source를 commit, stash 또는 복원하도록 보고한다. 생성 문서와 agent marker 변경은 이 판단에서 제외한다.
+
 ## 2. 계획 해석
 
 - `create-docs`: 홈과 필요한 concept 생성
@@ -63,7 +65,7 @@ source link를 추가한 documented 항목은 finalize가 자동 확인한다. p
 
 affected page와 필요한 1-hop 후보 source만 조사한다. rename은 old/new path를 함께 확인한다. 홈의 `source_commit`만 실제 설명 기준점과 맞춘다. concept에는 page별 `source_commit`을 넣지 않는다. index marker는 건드리지 않는다.
 
-문서가 바뀌면 finalize 전에 생성 문서와 agent marker 외 source worktree를 clean하게 만든다. dirty source를 설명한 문서는 commit 기준점으로 증명할 수 없으므로 finalize가 거부한다.
+dirty source를 설명한 문서는 commit 기준점으로 증명할 수 없으므로 finalize도 최종 방어선에서 거부한다.
 
 ## 6. 에이전트 안내
 
