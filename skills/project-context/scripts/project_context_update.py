@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+import sys
+
+if __name__ == "__main__" and not sys.flags.dont_write_bytecode:
+    os.execv(sys.executable, [sys.executable, "-B", *sys.argv])
+
 import argparse
 import errno
 import hashlib
 import json
-import os
 import re
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -1287,7 +1291,7 @@ def format_temp_plan(plan: dict) -> str:
         lines.append("- (none)")
 
     lines.extend(["", "## Evidence-backed Relationships", ""])
-    lines.append("- (none yet; for 3+ supporting pages use: source concept -> relationship meaning -> target concept)")
+    lines.append("- (none yet; for related concepts use: source concept -> relationship meaning -> target concept)")
 
     lines.extend(["", "## Deferred Coverage", ""])
     lines.append("- (none yet; record any page-budget deferral with area, source anchor, and reason)")

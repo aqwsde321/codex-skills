@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -999,7 +1001,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertFalse(changed)
         self.assertEqual((self.root / "AGENTS.md").read_text(encoding="utf-8"), first)
         self.assertIn("ordinary project questions", first)
-        self.assertIn("do not preload every supporting page", first)
+        self.assertIn("follow area indexes", first)
+        self.assertIn("do not preload every concept page", first)
         self.assertIn("read_when", first)
         self.assertIn("exact implementation verification", first)
         self.assertIn("current source remains authoritative", first)
@@ -1783,7 +1786,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertTrue(
-            any("split into indexed supporting pages" in error for error in single_errors)
+            any("split into indexed concept pages" in error for error in single_errors)
         )
         self.assertEqual(single_warnings, [])
         self.assertTrue(any("keep the router" in error for error in multi_errors))
@@ -2070,6 +2073,34 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 project_context_update.DEFAULT_DOC,
                 project_context_update.DEFAULT_METADATA,
             )
+
+    def test_cli_entrypoints_do_not_write_bytecode_into_skill_tree(self):
+        copied_scripts = self.root.parent / "copied-scripts"
+        shutil.copytree(
+            SCRIPT_ROOT,
+            copied_scripts,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+        env = os.environ.copy()
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+
+        for script in (
+            "project_context_update.py",
+            "project_context_agents.py",
+            "validate_project_context.py",
+        ):
+            completed = subprocess.run(
+                [sys.executable, str(copied_scripts / script), "--help"],
+                cwd=self.root,
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        self.assertEqual(list(copied_scripts.rglob("*.pyc")), [])
+        self.assertEqual(list(copied_scripts.rglob("__pycache__")), [])
 
     def test_git_paths_are_lossless_for_unicode_arrow_and_rename(self):
         unicode_path = self.root / "한글.py"

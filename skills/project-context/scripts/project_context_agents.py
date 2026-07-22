@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
+import os
+import sys
+
+if __name__ == "__main__" and not sys.flags.dont_write_bytecode:
+    os.execv(sys.executable, [sys.executable, "-B", *sys.argv])
+
 import argparse
 import re
-import sys
 from pathlib import Path
 
 
@@ -10,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from project_context_safety import (  # noqa: E402
+    atomic_write_text,
     require_git_repository,
     require_regular_file_or_missing,
 )
@@ -31,7 +37,7 @@ Start here:
 - [Project context](docs/project-context.md)
 
 Project context includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
-For ordinary project questions, read the project context first and follow its links only as relevant. Read the primary page first; do not preload every supporting page. In multi-page context, open only pages whose `read_when` guidance matches the task. When context is missing, stale, ambiguous, or exact implementation verification is required, inspect the relevant source; current source remains authoritative. Follow repository instructions for code discovery. Run `$project-context` to refresh documentation only when the user explicitly requests creation or refresh, or directly invokes the skill without a narrower read-only request; missing or stale context alone does not authorize writes.
+For ordinary project questions, read the project context first and follow its links only as relevant. Read the home page first, follow area indexes, and do not preload every concept page. Open only concept pages whose `read_when` guidance matches the task. When context is missing, stale, ambiguous, or exact implementation verification is required, inspect the relevant source; current source remains authoritative. Follow repository instructions for code discovery. Run `$project-context` to refresh documentation only when the user explicitly requests creation or refresh, or directly invokes the skill without a narrower read-only request; missing or stale context alone does not authorize writes.
 {END_MARKER}
 """
 
@@ -46,7 +52,8 @@ def is_semantically_current_section(section: str) -> bool:
         and "follow its links" in section
         and "code discovery" in section
         and "ordinary project questions" in section
-        and "do not preload every supporting page" in section
+        and "follow area indexes" in section
+        and "do not preload every concept page" in section
         and "read_when" in section
         and "exact implementation verification" in section
         and "current source remains authoritative" in section
@@ -96,14 +103,14 @@ def ensure_file(path: Path, create_if_missing: bool) -> tuple[str, bool]:
     if not path.exists():
         if not create_if_missing:
             return "skipped-missing", False
-        path.write_text(SECTION, encoding="utf-8")
+        atomic_write_text(path, SECTION)
         return "created", True
     if not path.is_file():
         raise ValueError(f"{path.name} must be a regular file")
     text = path.read_text(encoding="utf-8", errors="replace")
     next_text, changed = replace_marked_section(text)
     if changed:
-        path.write_text(next_text, encoding="utf-8")
+        atomic_write_text(path, next_text)
         return "updated", True
     return "current", False
 

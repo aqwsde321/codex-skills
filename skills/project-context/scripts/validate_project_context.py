@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+import sys
+
+if __name__ == "__main__" and not sys.flags.dont_write_bytecode:
+    os.execv(sys.executable, [sys.executable, "-B", *sys.argv])
+
 import argparse
 import errno
 import hashlib
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -96,7 +101,8 @@ SOURCE_MAPS_TEXT = "source maps"
 FOLLOW_LINKS_TEXT = "follow its links"
 CODE_DISCOVERY_TEXT = "code discovery"
 ORDINARY_PROJECT_QUESTIONS_TEXT = "ordinary project questions"
-DO_NOT_PRELOAD_TEXT = "do not preload every supporting page"
+AREA_INDEXES_TEXT = "follow area indexes"
+DO_NOT_PRELOAD_TEXT = "do not preload every concept page"
 READ_WHEN_TEXT = "read_when"
 EXACT_IMPLEMENTATION_VERIFICATION_TEXT = "exact implementation verification"
 CURRENT_SOURCE_AUTHORITATIVE_TEXT = "current source remains authoritative"
@@ -752,7 +758,7 @@ def validate_primary_size(root: Path, doc_rel: str) -> tuple[list[str], list[str
         elif issue["code"] == "single-page-primary-too-large":
             errors.append(
                 f"{doc_rel}: single-page body has {issue['body_chars']} characters; "
-                f"split into indexed supporting pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
+                f"split into indexed concept pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
             )
     return errors, warnings
 
@@ -775,6 +781,7 @@ def is_semantically_current_agent_section(section: str) -> bool:
         and FOLLOW_LINKS_TEXT in section
         and CODE_DISCOVERY_TEXT in section
         and ORDINARY_PROJECT_QUESTIONS_TEXT in section
+        and AREA_INDEXES_TEXT in section
         and DO_NOT_PRELOAD_TEXT in section
         and READ_WHEN_TEXT in section
         and EXACT_IMPLEMENTATION_VERIFICATION_TEXT in section
