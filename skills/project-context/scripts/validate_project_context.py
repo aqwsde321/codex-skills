@@ -26,6 +26,11 @@ from project_context_index import (  # noqa: E402
     render_context_index,
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_safety import (  # noqa: E402
+    context_tree_symlinks,
+    require_git_repository,
+    symlink_parent,
+)
 from project_context_structure import (  # noqa: E402
     MAX_MULTI_PAGE_PRIMARY_BODY_CHARS,
     MAX_SINGLE_PAGE_BODY_CHARS,
@@ -274,36 +279,6 @@ def read_json(path: Path) -> tuple[dict | None, str | None]:
     if not isinstance(value, dict):
         return None, "metadata root must be an object"
     return value, None
-
-
-def validate_repo_relative_path(label: str, value: str) -> str | None:
-    path = Path(value)
-    if value.strip() == "":
-        return f"{label} must not be empty"
-    if path.is_absolute():
-        return f"{label} must be relative to the repository root: {value}"
-    if ".." in path.parts:
-        return f"{label} must not contain parent directory traversal: {value}"
-    return None
-
-
-def symlink_parent(root: Path, rel_path: str) -> str | None:
-    current = root
-    for part in Path(rel_path).parent.parts:
-        current = current / part
-        if current.is_symlink():
-            return current.relative_to(root).as_posix()
-    return None
-
-
-def validate_repo_path(root: Path, label: str, value: str) -> str | None:
-    path_error = validate_repo_relative_path(label, value)
-    if path_error:
-        return path_error
-    symlink = symlink_parent(root, value)
-    if symlink:
-        return f"{label} parent must not be a symlink: {symlink}"
-    return None
 
 
 def is_expected_snapshot_race_error(error: OSError) -> bool:
@@ -818,11 +793,26 @@ def is_semantically_current_agent_section(section: str) -> bool:
 def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
+    try:
+        require_git_repository(root)
+    except ValueError as error:
+        return 1, [str(error)], warnings
+    for rel_path in (DEFAULT_DOC, DEFAULT_METADATA, TEMP_PLAN):
+        symlink = symlink_parent(root, rel_path)
+        if symlink:
+            errors.append(f"managed path parent must not be a symlink: {symlink}")
+    try:
+        context_symlinks = context_tree_symlinks(root, DEFAULT_DOC_DIR)
+    except ValueError as error:
+        errors.append(str(error))
+        context_symlinks = []
+    errors.extend(
+        f"context path must not be a symlink: {path}"
+        for path in context_symlinks
+    )
     temp_plan_path = root / TEMP_PLAN
     if temp_plan_path.exists() or temp_plan_path.is_symlink():
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
-    if (root / DEFAULT_DOC_DIR).is_symlink():
-        errors.append(f"context doc directory must not be a symlink: {DEFAULT_DOC_DIR}")
     docs = discover_docs(root, doc_rel)
     docs = [doc for doc in docs if doc != TEMP_PLAN]
     metadata_errors, metadata_warnings = validate_metadata(root, docs, doc_rel)
@@ -897,19 +887,19 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate Codex-native project context docs.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
-    parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Document path relative to repo root. Default: {DEFAULT_DOC}")
     args = parser.parse_args()
 
     root = Path(args.repo_root).resolve()
     if not root.exists() or not root.is_dir():
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
-    doc_error = validate_repo_path(root, "--doc", args.doc)
-    if doc_error:
-        print(doc_error, file=sys.stderr)
+    try:
+        require_git_repository(root)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
         return 2
 
-    code, messages, warnings = validate(root, args.doc)
+    code, messages, warnings = validate(root, DEFAULT_DOC)
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
     stream = sys.stderr if code else sys.stdout

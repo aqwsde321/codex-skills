@@ -5,6 +5,16 @@ import sys
 from pathlib import Path
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from project_context_safety import (  # noqa: E402
+    require_git_repository,
+    require_regular_file_or_missing,
+)
+
+
 START_MARKER = "<!-- project-context:start -->"
 END_MARKER = "<!-- project-context:end -->"
 MARKED_SECTION_RE = re.compile(
@@ -82,14 +92,14 @@ def replace_marked_section(text: str) -> tuple[str, bool]:
 
 def ensure_file(path: Path, create_if_missing: bool) -> tuple[str, bool]:
     if path.is_symlink():
-        return "skipped-symlink", False
+        raise ValueError(f"{path.name} must not be a symlink")
     if not path.exists():
         if not create_if_missing:
             return "skipped-missing", False
         path.write_text(SECTION, encoding="utf-8")
         return "created", True
     if not path.is_file():
-        return "skipped-not-file", False
+        raise ValueError(f"{path.name} must be a regular file")
     text = path.read_text(encoding="utf-8", errors="replace")
     next_text, changed = replace_marked_section(text)
     if changed:
@@ -99,8 +109,11 @@ def ensure_file(path: Path, create_if_missing: bool) -> tuple[str, bool]:
 
 
 def ensure_agent_files(root: Path) -> list[dict]:
+    require_git_repository(root)
     agents_path = root / "AGENTS.md"
     claude_path = root / "CLAUDE.md"
+    require_regular_file_or_missing(root, "AGENTS.md", "AGENTS.md")
+    require_regular_file_or_missing(root, "CLAUDE.md", "CLAUDE.md")
     create_agents = not agents_path.exists() and not claude_path.exists()
     results = []
     status, changed = ensure_file(agents_path, create_if_missing=create_agents)
@@ -120,7 +133,13 @@ def main() -> int:
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
 
-    for result in ensure_agent_files(root):
+    try:
+        results = ensure_agent_files(root)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+
+    for result in results:
         print(f"{result['path']}: {result['status']}")
     return 0
 

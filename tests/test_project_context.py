@@ -50,6 +50,15 @@ class ProjectContextTest(unittest.TestCase):
         )
         return completed.stdout.strip()
 
+    def run_script(self, script, *args, cwd=None):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT_ROOT / script), *map(str, args)],
+            cwd=cwd or self.root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def write_context(self):
         source_commit = self.git("rev-parse", "--short", "HEAD")
         context = self.root / "docs" / "project-context.md"
@@ -1385,6 +1394,169 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.assertEqual(persisted["content_hash"], before_hash)
         self.assertEqual(code, 0, (messages, warnings))
+
+    def test_update_cli_rejects_managed_path_overrides_without_mutation(self):
+        self.write_context()
+        readme = self.root / "README.md"
+        package_json = self.root / "package.json"
+        package_json.write_text('{"private": true}\n', encoding="utf-8")
+        original_readme = readme.read_text(encoding="utf-8")
+        original_package_json = package_json.read_text(encoding="utf-8")
+
+        cases = (
+            ("write-plan", "--plan-path", "README.md"),
+            ("delete-plan", "--plan-path", "README.md"),
+            ("record", "--metadata", "package.json"),
+            ("sync-index", "--doc", "README.md"),
+        )
+        for command, option, value in cases:
+            with self.subTest(command=command, option=option):
+                completed = self.run_script(
+                    "project_context_update.py",
+                    command,
+                    self.root,
+                    option,
+                    value,
+                )
+                self.assertEqual(completed.returncode, 2, completed.stderr)
+
+        self.assertEqual(readme.read_text(encoding="utf-8"), original_readme)
+        self.assertEqual(
+            package_json.read_text(encoding="utf-8"), original_package_json
+        )
+
+    def test_validator_cli_rejects_primary_doc_override(self):
+        completed = self.run_script(
+            "validate_project_context.py",
+            self.root,
+            "--doc",
+            "README.md",
+        )
+
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+
+    def test_validator_rejects_nested_git_directory(self):
+        nested = self.root / "nested"
+        nested.mkdir()
+
+        code, messages, _ = validate_project_context.validate(
+            nested, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("Git top-level" in message for message in messages))
+
+    def test_managed_write_helpers_reject_non_contract_paths(self):
+        self.write_context()
+
+        with self.assertRaisesRegex(ValueError, "must be docs/project-context/_plan.md"):
+            project_context_update.write_temp_plan(
+                self.root, "README.md", {"docs": []}
+            )
+        with self.assertRaisesRegex(ValueError, "must be docs/project-context/_plan.md"):
+            project_context_update.delete_temp_plan(self.root, "README.md")
+        with self.assertRaisesRegex(
+            ValueError, "must be docs/project-context/.metadata.json"
+        ):
+            project_context_update.record_metadata(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                "package.json",
+                "update",
+                False,
+                None,
+            )
+
+    def test_delete_plan_rejects_non_project_context_content(self):
+        plan_path = self.root / project_context_update.DEFAULT_TEMP_PLAN
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# User notes\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "non-project-context plan"):
+            project_context_update.delete_temp_plan(
+                self.root, project_context_update.DEFAULT_TEMP_PLAN
+            )
+
+        self.assertTrue(plan_path.is_file())
+        self.assertEqual(plan_path.read_text(encoding="utf-8"), "# User notes\n")
+
+    def test_write_plan_rejects_non_project_context_content(self):
+        plan_path = self.root / project_context_update.DEFAULT_TEMP_PLAN
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# User notes\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "non-project-context plan"):
+            project_context_update.write_temp_plan(
+                self.root,
+                project_context_update.DEFAULT_TEMP_PLAN,
+                {"docs": []},
+            )
+
+        self.assertEqual(plan_path.read_text(encoding="utf-8"), "# User notes\n")
+
+    def test_agent_helper_rejects_nested_git_directory_before_writing(self):
+        nested = self.root / "nested"
+        nested.mkdir()
+
+        completed = self.run_script(
+            "project_context_agents.py",
+            nested,
+            cwd=nested,
+        )
+
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+        self.assertIn("Git top-level", completed.stderr)
+        self.assertFalse((nested / "AGENTS.md").exists())
+
+    def test_agent_helper_rejects_symlink_target_before_other_writes(self):
+        outside = self.root.parent / "outside-agents.md"
+        outside.write_text("outside\n", encoding="utf-8")
+        (self.root / "CLAUDE.md").symlink_to(outside)
+
+        with self.assertRaisesRegex(ValueError, "CLAUDE.md must not be a symlink"):
+            project_context_agents.ensure_agent_files(self.root)
+
+        self.assertFalse((self.root / "AGENTS.md").exists())
+        self.assertEqual(outside.read_text(encoding="utf-8"), "outside\n")
+
+    def test_supporting_doc_symlink_is_an_error(self):
+        self.write_multi_context()
+        outside = self.root.parent / "outside-context.md"
+        outside.write_text("# Outside\n", encoding="utf-8")
+        symlink = self.root / "docs" / "project-context" / "linked.md"
+        symlink.symlink_to(outside)
+
+        with self.assertRaisesRegex(ValueError, "must not contain symlinks"):
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            )
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("must not be a symlink" in message for message in messages))
+
+    def test_snapshot_ignores_metadata_and_temporary_plan(self):
+        self.write_context()
+        docs = project_context_update.discover_docs(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        before = project_context_update.docs_content_hash(self.root, docs)
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        plan_path = self.root / project_context_update.DEFAULT_TEMP_PLAN
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text('{"changed": true}\n', encoding="utf-8")
+        plan_path.write_text("# Project Context Draft Plan\nchanged\n", encoding="utf-8")
+
+        after = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        self.assertEqual(after, before)
 
 
 if __name__ == "__main__":

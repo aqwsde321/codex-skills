@@ -5,7 +5,6 @@ import argparse
 import errno
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -24,6 +23,14 @@ from project_context_index import (  # noqa: E402
     replace_context_index,
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_safety import (  # noqa: E402
+    context_tree_symlinks,
+    require_expected_path,
+    require_git_repository,
+    require_regular_file_or_missing,
+    run_git_bytes,
+    symlink_parent,
+)
 from project_context_structure import (  # noqa: E402
     assess_primary_structure as document_structure_issues,
 )
@@ -36,6 +43,7 @@ DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
 GENERATOR_VERSION = "20"
+PLAN_SENTINEL = "# Project Context Draft Plan"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
@@ -111,32 +119,6 @@ def run_git(root: Path, args: list[str]) -> str:
     )
 
 
-def run_git_bytes(root: Path, args: list[str]) -> bytes:
-    try:
-        result = subprocess.run(
-            ["git", "--no-pager", *args],
-            cwd=root,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-    except OSError as error:
-        raise ValueError(f"git command failed: {error}") from error
-    if result.returncode != 0:
-        message = result.stderr.decode(errors="replace").strip() or "unknown git error"
-        raise ValueError(f"git {' '.join(args)} failed: {message}")
-    return result.stdout
-
-
-def require_git_repository(root: Path) -> None:
-    top_level = os.fsdecode(
-        run_git_bytes(root, ["rev-parse", "--show-toplevel"]).rstrip(b"\r\n")
-    )
-    if Path(top_level).resolve() != root.resolve():
-        raise ValueError(f"repo root must be the Git top-level directory: {top_level}")
-    run_git_bytes(root, ["rev-parse", "--verify", "HEAD^{commit}"])
-
-
 def git_output(root: Path, args: list[str]) -> str | None:
     output = run_git(root, args).strip()
     return output or None
@@ -207,11 +189,22 @@ def iter_relative_links(markdown: str):
 
 
 def discover_docs(root: Path, primary_doc: str) -> list[str]:
+    require_expected_path("primary context document", primary_doc, DEFAULT_DOC)
+    primary_path = root / primary_doc
+    if primary_path.is_symlink():
+        raise ValueError(f"primary context document must not be a symlink: {primary_doc}")
+    if primary_path.exists() and not primary_path.is_file():
+        raise ValueError(f"primary context document must be a regular file: {primary_doc}")
     docs = [primary_doc]
     doc_dir = root / DEFAULT_DOC_DIR
-    if doc_dir.exists() and not doc_dir.is_symlink() and doc_dir.is_dir():
+    symlinks = context_tree_symlinks(root, DEFAULT_DOC_DIR)
+    if symlinks:
+        raise ValueError(
+            "context document tree must not contain symlinks: " + ", ".join(symlinks)
+        )
+    if doc_dir.exists() and doc_dir.is_dir():
         for path in sorted(doc_dir.rglob("*.md")):
-            if path.is_symlink() or not path.is_file():
+            if not path.is_file():
                 continue
             rel = path.relative_to(root).as_posix()
             if rel not in docs:
@@ -235,36 +228,6 @@ def read_json(path: Path) -> dict | None:
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
-
-
-def validate_repo_relative_path(label: str, value: str) -> str | None:
-    path = Path(value)
-    if value.strip() == "":
-        return f"{label} must not be empty"
-    if path.is_absolute():
-        return f"{label} must be relative to the repository root: {value}"
-    if ".." in path.parts:
-        return f"{label} must not contain parent directory traversal: {value}"
-    return None
-
-
-def symlink_parent(root: Path, rel_path: str) -> str | None:
-    current = root
-    for part in Path(rel_path).parent.parts:
-        current = current / part
-        if current.is_symlink():
-            return current.relative_to(root).as_posix()
-    return None
-
-
-def validate_repo_path(root: Path, label: str, value: str) -> str | None:
-    path_error = validate_repo_relative_path(label, value)
-    if path_error:
-        return path_error
-    symlink = symlink_parent(root, value)
-    if symlink:
-        return f"{label} parent must not be a symlink: {symlink}"
-    return None
 
 
 def is_structured_update_metadata(metadata: dict) -> bool:
@@ -997,7 +960,7 @@ def format_plan(plan: dict) -> str:
 def format_temp_plan(plan: dict) -> str:
     required_actions = plan.get("required_actions") or [plan.get("recommended_action")]
     lines = [
-        "# Project Context Draft Plan",
+        PLAN_SENTINEL,
         "",
         "Delete this file before finishing the project-context run.",
         "",
@@ -1109,16 +1072,27 @@ def format_temp_plan(plan: dict) -> str:
 
 
 def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
+    require_git_repository(root)
+    require_expected_path("temporary plan path", plan_rel, DEFAULT_TEMP_PLAN)
     symlink = symlink_parent(root, plan_rel)
     if symlink:
         raise ValueError(f"temporary plan parent must not be a symlink: {symlink}")
     plan_path = root / plan_rel
+    if plan_path.is_symlink():
+        raise ValueError(f"temporary plan path must not be a symlink: {plan_rel}")
+    if plan_path.exists():
+        if not plan_path.is_file():
+            raise ValueError(f"temporary plan path must be a regular file: {plan_rel}")
+        if not read_text(plan_path).startswith(f"{PLAN_SENTINEL}\n"):
+            raise ValueError("refusing to overwrite a non-project-context plan")
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(format_temp_plan(plan), encoding="utf-8")
     return plan_path
 
 
 def delete_temp_plan(root: Path, plan_rel: str) -> tuple[str, bool]:
+    require_git_repository(root)
+    require_expected_path("temporary plan path", plan_rel, DEFAULT_TEMP_PLAN)
     symlink = symlink_parent(root, plan_rel)
     if symlink:
         raise ValueError(f"temporary plan parent must not be a symlink: {symlink}")
@@ -1129,11 +1103,15 @@ def delete_temp_plan(root: Path, plan_rel: str) -> tuple[str, bool]:
         raise ValueError(f"temporary plan path must not be a symlink: {plan_rel}")
     if not plan_path.is_file():
         raise ValueError(f"temporary plan path must be a regular file: {plan_rel}")
+    if not read_text(plan_path).startswith(f"{PLAN_SENTINEL}\n"):
+        raise ValueError("refusing to delete a non-project-context plan")
     plan_path.unlink()
     return f"temporary plan deleted: {plan_rel}", True
 
 
 def sync_context_index(root: Path, doc_rel: str) -> dict:
+    require_git_repository(root)
+    require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
     doc_path = root / doc_rel
     if doc_path.is_symlink() or not doc_path.is_file():
         raise ValueError(f"primary context document must be a regular file: {doc_rel}")
@@ -1168,7 +1146,10 @@ def record_metadata(
     if_changed: bool,
     before_hash: str | None,
 ) -> dict:
+    require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
+    require_expected_path("metadata path", metadata_rel, DEFAULT_METADATA)
     require_git_repository(root)
+    require_regular_file_or_missing(root, metadata_rel, "metadata path")
     full_head, short_head = git_head(root)
     docs = discover_docs(root, doc_rel)
     source_map = collect_doc_sources(root, docs)
@@ -1298,9 +1279,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
     parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "sync-index", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; sync-index refreshes the deterministic multi-page router; snapshot prints the current docs content hash; record writes metadata after docs update.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
-    parser.add_argument("--doc", default=DEFAULT_DOC, help=f"Primary doc path. Default: {DEFAULT_DOC}")
-    parser.add_argument("--metadata", default=DEFAULT_METADATA, help=f"Metadata path. Default: {DEFAULT_METADATA}")
-    parser.add_argument("--plan-path", default=DEFAULT_TEMP_PLAN, help=f"Temporary draft plan path. Default: {DEFAULT_TEMP_PLAN}")
     parser.add_argument("--mode", choices=["init", "update"], default="update", help="Project context run mode stored in metadata.")
     parser.add_argument("--if-changed", action="store_true", help="Preserve the documentation source commit when docs are unchanged while recording newly reviewed commits.")
     parser.add_argument("--before-hash", help="Docs content hash captured before the run. With --if-changed, metadata is skipped when it still matches.")
@@ -1311,35 +1289,30 @@ def main() -> int:
     if not root.exists() or not root.is_dir():
         print(f"repo root is not a directory: {root}", file=sys.stderr)
         return 2
-    for label, value in (
-        ("--doc", args.doc),
-        ("--metadata", args.metadata),
-        ("--plan-path", args.plan_path),
-    ):
-        path_error = validate_repo_path(root, label, value)
-        if path_error:
-            print(path_error, file=sys.stderr)
-            return 2
     try:
         require_git_repository(root)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
     if args.command in {"plan", "write-plan"}:
-        plan = build_plan(root, args.doc, args.metadata)
+        try:
+            plan = build_plan(root, DEFAULT_DOC, DEFAULT_METADATA)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
         if args.command == "write-plan":
-            if (root / args.plan_path).is_symlink():
-                print(f"temporary plan path must not be a symlink: {args.plan_path}", file=sys.stderr)
+            if (root / DEFAULT_TEMP_PLAN).is_symlink():
+                print(f"temporary plan path must not be a symlink: {DEFAULT_TEMP_PLAN}", file=sys.stderr)
                 return 1
             try:
-                plan_path = write_temp_plan(root, args.plan_path, plan)
+                plan_path = write_temp_plan(root, DEFAULT_TEMP_PLAN, plan)
             except ValueError as error:
                 print(str(error), file=sys.stderr)
                 return 1
             if args.json:
                 print(safe_json_dumps(
                     {
-                        "plan_path": args.plan_path,
+                        "plan_path": DEFAULT_TEMP_PLAN,
                         "recommended_action": plan.get("recommended_action"),
                         "required_actions": plan.get("required_actions", []),
                         "previous_commit": plan.get("previous_commit"),
@@ -1373,19 +1346,19 @@ def main() -> int:
 
     if args.command == "delete-plan":
         try:
-            message, deleted = delete_temp_plan(root, args.plan_path)
+            message, deleted = delete_temp_plan(root, DEFAULT_TEMP_PLAN)
         except ValueError as error:
             print(str(error), file=sys.stderr)
             return 1
         if args.json:
-            print(safe_json_dumps({"plan_path": args.plan_path, "deleted": deleted}))
+            print(safe_json_dumps({"plan_path": DEFAULT_TEMP_PLAN, "deleted": deleted}))
         else:
             print(message)
         return 0
 
     if args.command == "sync-index":
         try:
-            result = sync_context_index(root, args.doc)
+            result = sync_context_index(root, DEFAULT_DOC)
         except ValueError as error:
             print(str(error), file=sys.stderr)
             return 1
@@ -1395,44 +1368,59 @@ def main() -> int:
             print(f"context index unchanged: {result.get('reason')}")
         else:
             state = "updated" if result.get("changed") else "current"
-            print(f"context index {state}: {args.doc}")
+            print(f"context index {state}: {DEFAULT_DOC}")
             print(f"supporting docs: {result.get('supporting_docs')}")
         return 0
 
     if args.command == "snapshot":
-        docs = discover_docs(root, args.doc)
-        content_hash = docs_content_hash(root, docs)
+        try:
+            docs = discover_docs(root, DEFAULT_DOC)
+            content_hash = docs_content_hash(root, docs)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 1
         if args.json:
             print(safe_json_dumps({"content_hash": content_hash, "docs": docs}))
         else:
             print(content_hash)
         return 0
 
-    plan_path = root / args.plan_path
+    plan_path = root / DEFAULT_TEMP_PLAN
     if plan_path.exists() or plan_path.is_symlink():
-        print(f"temporary plan must be deleted before recording metadata: {args.plan_path}", file=sys.stderr)
+        print(f"temporary plan must be deleted before recording metadata: {DEFAULT_TEMP_PLAN}", file=sys.stderr)
         return 1
-    doc_path = root / args.doc
-    metadata_path = root / args.metadata
+    doc_path = root / DEFAULT_DOC
+    metadata_path = root / DEFAULT_METADATA
     if doc_path.is_symlink() or not doc_path.is_file():
-        print(f"primary context document must be a regular file before recording metadata: {args.doc}", file=sys.stderr)
+        print(f"primary context document must be a regular file before recording metadata: {DEFAULT_DOC}", file=sys.stderr)
         return 1
     if metadata_path.is_symlink():
-        print(f"metadata path must not be a symlink: {args.metadata}", file=sys.stderr)
+        print(f"metadata path must not be a symlink: {DEFAULT_METADATA}", file=sys.stderr)
         return 1
 
-    metadata = record_metadata(root, args.doc, args.metadata, args.mode, args.if_changed, args.before_hash)
+    try:
+        metadata = record_metadata(
+            root,
+            DEFAULT_DOC,
+            DEFAULT_METADATA,
+            args.mode,
+            args.if_changed,
+            args.before_hash,
+        )
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
     if args.json:
         print(safe_json_dumps(metadata))
     elif metadata.get("skipped"):
-        print(f"metadata unchanged: {args.metadata}")
+        print(f"metadata unchanged: {DEFAULT_METADATA}")
         print(f"reason: {metadata.get('reason')}")
     elif metadata.get("review_only"):
-        print(f"documentation unchanged; review baseline written: {args.metadata}")
+        print(f"documentation unchanged; review baseline written: {DEFAULT_METADATA}")
         print(f"source_commit: {metadata.get('source_commit_short') or metadata.get('source_commit')}")
         print(f"reviewed_commit: {metadata.get('reviewed_commit')}")
     else:
-        print(f"metadata written: {args.metadata}")
+        print(f"metadata written: {DEFAULT_METADATA}")
         print(f"source_commit: {metadata.get('source_commit_short') or metadata.get('source_commit')}")
         print(f"docs: {len(metadata.get('docs', []))}")
     return 0
