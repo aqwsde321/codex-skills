@@ -26,7 +26,7 @@ exit 0만 완료다. warning은 보고하지만 완료를 막지 않는다. erro
 - generated index marker와 metadata 기반 렌더링 일치
 - 홈 mode와 실제 page 구조 일치
 - 홈 body 4,000자 이하
-- 홈·concept에 `## 근거`와 실제 source link 존재
+- 홈·concept에 `## 근거`가 있고 각 source link는 `HEAD`에 존재
 - repo 밖 링크, absolute host path, broken internal link 없음
 - private key, access key, secret-looking assignment 없음
 - metadata `pages`, `indexes`, `doc_sources`, `doc_hashes`, `content_hash`가 현재 tree와 일치
@@ -41,6 +41,8 @@ exit 0만 완료다. warning은 보고하지만 완료를 막지 않는다. erro
 - 홈 권장 section 누락
 
 semantic orphan warning은 링크 수를 강제하지 않는다. 링크만 있거나 label 뒤에 링크만 나열한 navigation 목록은 관계로 세지 않는다. 독립 page가 의도적이면 warning을 완료 보고에 남긴다.
+
+source link 검증은 current worktree 파일 존재 여부가 아니라 committed `HEAD` tree를 기준으로 한다. worktree에서 삭제·수정된 tracked source는 `HEAD` 내용으로 유효하고, untracked source만 가리키는 링크는 broken link다. plan의 `반영하지 않은 워크트리 소스`는 오류가 아니며 metadata 기준점에 포함되지 않는다.
 
 ## 최종 확정 실패 처리
 
@@ -59,3 +61,5 @@ helper는 고정 경로만 쓴다.
 - top-level agent marker
 
 CLI의 `--doc`, `--metadata`, `--plan-path` 같은 managed path override는 지원하지 않는다. repo root는 실제 Git top-level과 같아야 한다. Git ignore 대상, destination collision, non-regular file, symlink tree는 write 전에 실패해야 한다.
+
+현재 worktree의 project-context 문서와 marked agent 안내는 managed write 대상이다. 그 밖의 미커밋 파일은 helper가 수정하지 않는다.

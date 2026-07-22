@@ -7,7 +7,7 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 
 ## 목적
 
-저장소의 구조, 주요 흐름, 변경 위험, 검증 방법을 source-grounded 장기 위키로 유지한다. 진입점은 `docs/project-context.md`다. 현재 source가 문서보다 우선한다.
+저장소의 구조, 주요 흐름, 변경 위험, 검증 방법을 source-grounded 장기 위키로 유지한다. 진입점은 `docs/project-context.md`다. `init`과 `update`에서는 실행 시작 시 고정한 `HEAD`의 committed source가 문서보다 우선한다.
 
 이 스킬은 외부 문서화 서비스나 코드 인덱서를 설치·설정·호출하지 않는다. 저장소 지침에 지정된 코드 탐색 도구만 사용한다.
 
@@ -30,6 +30,8 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 - 사용자 소유 문서나 unmarked agent 지침 덮어쓰기
 
 `.env.example`은 placeholder만 있을 때만 읽는다. 절대경로, private URL, secret을 생성 문서나 metadata에 기록하지 않는다.
+
+현재 worktree의 `docs/project-context*`는 managed input/output이다. 정확한 사용자 초안은 보존하고, `HEAD` source와 충돌하는 내용은 고치며, generated index와 metadata는 helper가 다시 생성할 수 있다. 다른 미커밋 source 변경은 수정하거나 문서 근거로 사용하지 않는다.
 
 ## 모드
 
@@ -56,6 +58,7 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 - area index는 helper가 관리한다. generated marker 내부를 직접 편집하지 않는다.
 - 관련 concept는 관계 의미가 드러나는 문장으로 연결한다. 링크 개수는 강제하지 않는다.
 - 홈의 `source_commit`은 위키가 설명하는 source 기준점, metadata의 `reviewed_commit`은 변경 불필요까지 확인한 기준점이다.
+- source link는 홈의 `source_commit`에 해당하는 Git tree에 존재해야 한다.
 - source와 연결되지 않은 변경은 문서화, 홈 backlog, 이유 있는 ignore 중 하나로 해소한다.
 - page hash, source map, index는 현재 파일과 일치해야 한다.
 - warning은 보고 대상이다. error 또는 non-zero exit는 완료 실패다.
@@ -66,7 +69,7 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 
 핵심 순서:
 
-1. Git root·HEAD·worktree 확인
+1. Git root와 committed `HEAD` 기준점 고정, worktree 상태 확인
 2. 문서 snapshot과 변경 plan 생성
 3. 필요하면 legacy migration dry-run 후 적용하고 다시 계획
 4. 문서 변경 run만 `_plan.md` 생성
@@ -75,7 +78,7 @@ description: Read existing or explicitly create, refresh, and validate source-gr
 7. finalize로 index·resolution·metadata 원자 확정
 8. 최종 validator 실행
 
-문서 작성 전에 생성 문서와 agent marker 외 source worktree가 clean해야 한다. dirty source가 있으면 `_plan.md`나 문서를 만들지 말고 먼저 commit, stash 또는 복원하도록 보고한다. true `no-op`은 문서와 `_plan.md`를 만들지 않지만 agent 안내 확인과 review 기준점 확정은 수행한다.
+미커밋 source는 계획·조사·문서 근거에서 제외하고 plan의 `반영하지 않은 워크트리 소스`로 보고한다. 이전 `reviewed_commit` 이후 고정한 `HEAD`까지의 모든 커밋은 증분 검토 범위다. 현재 project-context 문서는 dirty여도 관리 대상으로 갱신한다. true `no-op`은 문서와 `_plan.md`를 만들지 않지만 agent 안내 확인과 review 기준점 확정은 수행한다.
 
 ## 도우미 계약
 

@@ -2,7 +2,9 @@
 
 ## 소스 조사
 
-먼저 저장소 지침에 정의된 코드 탐색 도구를 사용한다. 후보가 좁혀지면 필요한 파일만 직접 읽는다.
+`init`과 `update`는 실행 시작 시 고정한 committed `HEAD`를 source 기준으로 사용한다. 파일 목록·내용·검색 결과도 해당 Git tree에서 읽는다. 미커밋·untracked source는 존재하지 않는 것으로 취급한다.
+
+저장소 지침에 정의된 코드 탐색 도구가 current worktree를 읽는다면 결과를 그대로 근거로 쓰지 않는다. worktree가 clean하거나 필요한 내용을 고정한 commit의 `git show`·`git grep` 결과와 대조한 경우에만 사용한다. 후보가 좁혀지면 필요한 committed 파일만 읽는다.
 
 우선 후보:
 
@@ -13,7 +15,7 @@
 - 기존 docs, runbook, ADR
 - plan의 affected, 1-hop candidate, unmapped 파일
 
-init에서는 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심 workflow의 이유를 확인한다. 커밋 메시지만 근거로 쓰지 않는다. 기존 문서와 source가 충돌하면 현재 source를 우선하고 확인되지 않은 내용은 `확인 필요`로 표시한다.
+init에서는 고정한 `HEAD`까지의 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심 workflow의 이유를 확인한다. 커밋 메시지만 근거로 쓰지 않는다. 기존 문서와 source가 충돌하면 committed `HEAD` source를 우선하고 확인되지 않은 내용은 `확인 필요`로 표시한다.
 
 큰 repo에서 병렬 read-only 조사가 유용하면 좁은 area 단위로 나눈다. 최종 문장과 source 근거는 메인 agent가 직접 검증한다.
 
@@ -24,7 +26,7 @@ init에서는 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심
 - 주요 주장 가까이에 repo-relative Markdown source link를 둔다.
 - 같은 개념은 한 canonical page에 쓰고 다른 page에서는 관계 문장으로 링크한다.
 - 홈에 concept 상세를 복제하지 않는다.
-- 기존의 정확한 문장은 보존하고 stale한 주장만 고친다.
+- 현재 worktree의 기존 project-context 문서에서 정확한 문장과 사용자 추가 내용은 보존하고 stale한 주장만 고친다.
 - formatting-only, wording polish, table reorder를 update 이유로 삼지 않는다.
 - source 변경이 작으면 보통 영향 page도 작게 유지한다.
 - page가 얇아도 독립 개념이면 유지할 수 있다. 근거·판단 가치가 없을 때만 합친다.

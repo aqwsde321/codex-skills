@@ -3153,14 +3153,33 @@ read_when: 실행 흐름 변경 또는 동작 검증
         authoring = (skill_root / "references" / "authoring.md").read_text(
             encoding="utf-8"
         )
+        validation = (skill_root / "references" / "validation.md").read_text(
+            encoding="utf-8"
+        )
 
         self.assertNotIn("project_context_update.py", skill)
         self.assertNotIn("project_context_agents.py", skill)
         self.assertIn("project_context_update.py snapshot", workflow)
         self.assertIn("project_context_update.py finalize", workflow)
-        self.assertIn("`_plan.md`나 문서를 만들기 전에", workflow)
+        self.assertIn(
+            'PROJECT_CONTEXT_SOURCE_COMMIT="$(git rev-parse HEAD)"', workflow
+        )
+        self.assertIn(
+            'git ls-tree -r --name-only "$PROJECT_CONTEXT_SOURCE_COMMIT"', workflow
+        )
+        self.assertIn('git show "$PROJECT_CONTEXT_SOURCE_COMMIT":<path>', workflow)
+        self.assertIn(
+            'git grep -n -e <pattern> "$PROJECT_CONTEXT_SOURCE_COMMIT" -- <paths>',
+            workflow,
+        )
+        self.assertIn("이전 `reviewed_commit` 이후 HEAD까지의 모든 커밋", workflow)
+        self.assertIn("현재 worktree의 project-context 문서", workflow)
+        self.assertIn("반영하지 않은 워크트리 소스", workflow)
+        self.assertNotIn("commit, stash 또는 복원", workflow)
         self.assertIn("홈의 `source_commit`만", workflow)
         self.assertNotIn("홈·concept의 `source_commit`", workflow)
+        self.assertIn("현재 worktree의 `docs/project-context*`", skill)
+        self.assertIn("source link는 `HEAD`에 존재", validation)
         for heading in (
             "## 프로젝트 요약",
             "## 변경 판단",
