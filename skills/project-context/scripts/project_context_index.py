@@ -145,13 +145,13 @@ def validate_entry_fields(
     for field, limit in limits.items():
         value = fields.get(field, "").strip()
         if not value:
-            errors.append(f"{doc}: missing index metadata: {field}")
+            errors.append(f"{doc}: missing context metadata: {field}")
             continue
         if len(value) > limit:
-            errors.append(f"{doc}: index metadata {field} exceeds {limit} characters")
+            errors.append(f"{doc}: context metadata {field} exceeds {limit} characters")
             continue
         if "[" in value or "]" in value:
-            errors.append(f"{doc}: index metadata {field} must be plain text")
+            errors.append(f"{doc}: context metadata {field} must be plain text")
             continue
         values[field] = value
     return values, errors

@@ -634,6 +634,20 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("dirty source worktree changes", completed.stderr)
         self.assertEqual(metadata_path.read_bytes(), metadata_before)
 
+    def test_write_plan_rejects_dirty_source_without_creating_plan(self):
+        self.write_context()
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+
+        completed = self.run_script(
+            "project_context_update.py",
+            "write-plan",
+            self.root,
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("dirty source worktree changes", completed.stderr)
+        self.assertFalse((self.root / project_context_update.DEFAULT_TEMP_PLAN).exists())
+
     def test_dirty_agent_marker_only_change_uses_head_baseline(self):
         self.write_context()
         self.record_and_commit_context("docs: add project context")
@@ -1291,6 +1305,118 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(metadata_path.read_bytes(), original_metadata)
         self.assertEqual(plan_path.read_bytes(), original_plan)
 
+    def test_finalize_rolls_back_synced_indexes_after_final_validation_failure(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        self.record_and_commit_context("docs: add multi-page context")
+        architecture = (
+            self.root
+            / "docs"
+            / "project-context"
+            / "architecture"
+            / "overview.md"
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
+            ),
+            encoding="utf-8",
+        )
+        self.git("add", "docs/project-context/architecture/overview.md")
+        self.git("commit", "-m", "docs: make generated index stale")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        plan_path = project_context_update.write_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN, plan
+        )
+        original_plan = plan_path.read_bytes()
+        original_home = context.read_bytes()
+        architecture_index = (
+            self.root / "docs/project-context/architecture/index.md"
+        )
+        original_index = architecture_index.read_bytes()
+
+        with mock.patch(
+            "validate_project_context.validate",
+            side_effect=[
+                (0, ["candidate valid"], []),
+                (1, ["forced final failure"], []),
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "forced final failure"):
+                project_context_update.finalize_context(
+                    self.root,
+                    project_context_update.DEFAULT_DOC,
+                    project_context_update.DEFAULT_METADATA,
+                    "update",
+                    True,
+                    before_hash,
+                )
+
+        self.assertEqual(context.read_bytes(), original_home)
+        self.assertEqual(architecture_index.read_bytes(), original_index)
+        self.assertEqual(plan_path.read_bytes(), original_plan)
+
+    def test_finalize_rejects_dirty_source_before_syncing_stale_indexes(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        self.record_and_commit_context("docs: add multi-page context")
+        architecture = (
+            self.root
+            / "docs"
+            / "project-context"
+            / "architecture"
+            / "overview.md"
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
+            ),
+            encoding="utf-8",
+        )
+        self.git("add", "docs/project-context/architecture/overview.md")
+        self.git("commit", "-m", "docs: make generated index stale")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        architecture_index = (
+            self.root / "docs/project-context/architecture/index.md"
+        )
+        original_home = context.read_bytes()
+        original_index = architecture_index.read_bytes()
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "update",
+                True,
+                before_hash,
+            )
+
+        self.assertEqual(context.read_bytes(), original_home)
+        self.assertEqual(architecture_index.read_bytes(), original_index)
+
     def test_finalize_requires_and_records_unmapped_ignore_reason(self):
         self.write_context()
         self.record_and_commit_context("docs: add context")
@@ -1692,6 +1818,27 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.assertEqual(len(plan["created_indexes"]), 2)
 
+    def test_wiki_migration_apply_rejects_dirty_source_without_writing(self):
+        self.write_legacy_multi_context()
+        before = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in sorted((self.root / "docs").rglob("*"))
+            if path.is_file()
+        }
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
+            project_context_update.apply_wiki_migration(
+                self.root, project_context_update.DEFAULT_DOC, "update"
+            )
+
+        after = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in sorted((self.root / "docs").rglob("*"))
+            if path.is_file()
+        }
+        self.assertEqual(after, before)
+
     def test_legacy_wiki_migration_preserves_content_and_rewrites_links(self):
         self.write_legacy_multi_context()
 
@@ -1806,10 +1953,120 @@ read_when: 실행 흐름 변경 또는 동작 검증
             encoding="utf-8",
         )
 
-        with self.assertRaisesRegex(ValueError, "missing index metadata: read_when"):
+        with self.assertRaisesRegex(ValueError, "missing context metadata: read_when"):
             project_context_update.sync_context_index(
                 self.root, project_context_update.DEFAULT_DOC
             )
+
+    def test_sync_index_rejects_dirty_source_before_writing(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        architecture = (
+            self.root
+            / "docs"
+            / "project-context"
+            / "architecture"
+            / "overview.md"
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
+            ),
+            encoding="utf-8",
+        )
+        architecture_index = (
+            self.root / "docs/project-context/architecture/index.md"
+        )
+        original_home = context.read_bytes()
+        original_index = architecture_index.read_bytes()
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
+            project_context_update.sync_context_index(
+                self.root, project_context_update.DEFAULT_DOC
+            )
+
+        self.assertEqual(context.read_bytes(), original_home)
+        self.assertEqual(architecture_index.read_bytes(), original_index)
+
+    def test_sync_index_allows_dirty_source_when_nothing_would_change(self):
+        self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+
+        result = project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+
+        self.assertFalse(result["changed"])
+
+    def test_sync_index_rolls_back_partial_index_writes(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        architecture = (
+            self.root
+            / "docs"
+            / "project-context"
+            / "architecture"
+            / "overview.md"
+        )
+        workflows = (
+            self.root
+            / "docs"
+            / "project-context"
+            / "workflows"
+            / "overview.md"
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
+            ),
+            encoding="utf-8",
+        )
+        workflows.write_text(
+            workflows.read_text(encoding="utf-8").replace(
+                "description: 주요 실행 흐름 상세",
+                "description: 주요 실행·복구 흐름 상세",
+            ),
+            encoding="utf-8",
+        )
+        index_paths = [
+            context,
+            self.root / "docs/project-context/architecture/index.md",
+            self.root / "docs/project-context/workflows/index.md",
+        ]
+        originals = {path: path.read_bytes() for path in index_paths}
+        atomic_write_text = project_context_update.atomic_write_text
+        write_count = 0
+
+        def fail_second_write(path, markdown):
+            nonlocal write_count
+            write_count += 1
+            if write_count == 2:
+                raise OSError("forced index write failure")
+            atomic_write_text(path, markdown)
+
+        with mock.patch.object(
+            project_context_update,
+            "atomic_write_text",
+            side_effect=fail_second_write,
+        ):
+            with self.assertRaisesRegex(OSError, "forced index write failure"):
+                project_context_update.sync_context_index(
+                    self.root, project_context_update.DEFAULT_DOC
+                )
+
+        self.assertGreaterEqual(write_count, 2)
+        for path, original in originals.items():
+            self.assertEqual(path.read_bytes(), original)
 
     def test_validator_detects_stale_deterministic_index(self):
         self.write_multi_context()

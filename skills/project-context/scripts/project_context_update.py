@@ -563,12 +563,16 @@ def require_clean_source_worktree_for_changed_docs(
 ) -> None:
     if not docs_changed:
         return
+    require_clean_source_worktree(root, "record changed project context")
+
+
+def require_clean_source_worktree(root: Path, action: str) -> None:
     # ponytail: metadata records commit baselines only; add a verified worktree
     # fingerprint if documenting dirty source becomes an explicit workflow.
     dirty_paths = dirty_source_change_paths(root)
     if dirty_paths:
         raise ValueError(
-            "cannot record changed project context with dirty source worktree changes: "
+            f"cannot {action} with dirty source worktree changes: "
             + ", ".join(dirty_paths)
         )
 
@@ -693,20 +697,11 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 
 def context_index_needs_sync(root: Path, doc_rel: str, docs: list[str]) -> bool:
-    rendered_indexes, errors = render_context_indexes(root, doc_rel, docs)
-    if errors or rendered_indexes is None:
+    try:
+        _, pending_writes = _prepare_context_index_sync(root, doc_rel, docs)
+    except (OSError, ValueError):
         return True
-    for index_doc, rendered_index in rendered_indexes.items():
-        index_path = root / index_doc
-        if index_path.is_symlink() or not index_path.is_file():
-            return True
-        try:
-            _, changed = replace_context_index(read_text(index_path), rendered_index)
-        except ValueError:
-            return True
-        if changed:
-            return True
-    return False
+    return bool(pending_writes)
 
 
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
@@ -1367,6 +1362,7 @@ def has_project_context_plan_sentinel(markdown: str) -> bool:
 def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
     require_git_repository(root)
     require_expected_path("temporary plan path", plan_rel, DEFAULT_TEMP_PLAN)
+    require_clean_source_worktree(root, "write project context plan")
     symlink = symlink_parent(root, plan_rel)
     if symlink:
         raise ValueError(f"temporary plan parent must not be a symlink: {symlink}")
@@ -1582,6 +1578,7 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
         raise ValueError(
             f"temporary plan must be deleted before migration: {DEFAULT_TEMP_PLAN}"
         )
+    require_clean_source_worktree(root, "apply project context migration")
     plan, documents = _prepare_wiki_migration(root, doc_rel)
     previous_metadata = read_json(root / DEFAULT_METADATA) or {}
     metadata_source_commit = previous_metadata.get("source_commit")
@@ -1652,14 +1649,19 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
     }
 
 
-def sync_context_index(root: Path, doc_rel: str) -> dict:
+def _prepare_context_index_sync(
+    root: Path,
+    doc_rel: str,
+    docs: list[str] | None = None,
+) -> tuple[dict, dict[str, str]]:
     require_git_repository(root)
     require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
     doc_path = root / doc_rel
     if doc_path.is_symlink() or not doc_path.is_file():
         raise ValueError(f"primary context document must be a regular file: {doc_rel}")
-    docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
-    inventory = wiki_inventory(docs, doc_rel, require_indexes=False)
+    current_docs = docs if docs is not None else discover_docs(root, doc_rel)
+    current_docs = [doc for doc in current_docs if doc != DEFAULT_TEMP_PLAN]
+    inventory = wiki_inventory(current_docs, doc_rel, require_indexes=False)
     if inventory["errors"]:
         raise ValueError("\n".join(inventory["errors"]))
     concepts = list(inventory["concepts"])
@@ -1689,7 +1691,7 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
             Path(index_doc).parent.name
         )
 
-    future_docs = sorted(set(docs) | set(created_documents))
+    future_docs = sorted(set(current_docs) | set(created_documents))
     rendered_indexes, errors = render_context_indexes(
         root,
         doc_rel,
@@ -1701,8 +1703,7 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
     if not rendered_indexes:
         current_markdown = read_text(doc_path)
         next_markdown, changed = remove_context_index(current_markdown)
-        if changed:
-            atomic_write_text(doc_path, next_markdown)
+        pending_writes = {doc_rel: next_markdown} if changed else {}
         return {
             "changed": changed,
             "skipped": not changed,
@@ -1711,7 +1712,7 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
             "changed_docs": [doc_rel] if changed else [],
             "created_indexes": [],
             "indexes": 0,
-        }
+        }, pending_writes
 
     pending_writes: dict[str, str] = {}
     for index_doc, rendered_index in rendered_indexes.items():
@@ -1730,8 +1731,6 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
         next_markdown, changed = replace_index(current_markdown, rendered_index)
         if changed:
             pending_writes[index_doc] = next_markdown
-    for index_doc, markdown in pending_writes.items():
-        atomic_write_text(root / index_doc, markdown)
     created_indexes = sorted(created_documents)
     return {
         "changed": bool(created_indexes or pending_writes),
@@ -1740,7 +1739,47 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
         "changed_docs": sorted(set(created_indexes) | set(pending_writes)),
         "created_indexes": created_indexes,
         "indexes": len(rendered_indexes) - 1,
-    }
+    }, pending_writes
+
+
+def _restore_context_writes(
+    root: Path,
+    originals: dict[str, bytes | None],
+) -> None:
+    for doc in sorted(originals, reverse=True):
+        path = root / doc
+        original = originals[doc]
+        require_regular_file_or_missing(root, doc, "context index path")
+        if original is None:
+            path.unlink(missing_ok=True)
+        else:
+            atomic_write_bytes(path, original)
+
+
+def _apply_context_writes(
+    root: Path,
+    pending_writes: dict[str, str],
+) -> dict[str, bytes | None]:
+    originals: dict[str, bytes | None] = {}
+    for doc in pending_writes:
+        if doc != DEFAULT_DOC and not doc.startswith(f"{DEFAULT_DOC_DIR}/"):
+            raise ValueError(f"context index path is outside managed docs: {doc}")
+        require_regular_file_or_missing(root, doc, "context index path")
+        originals[doc] = snapshot_file_bytes(root / doc)
+    try:
+        for doc, markdown in pending_writes.items():
+            atomic_write_text(root / doc, markdown)
+    except BaseException:
+        _restore_context_writes(root, originals)
+        raise
+    return originals
+
+
+def sync_context_index(root: Path, doc_rel: str) -> dict:
+    result, pending_writes = _prepare_context_index_sync(root, doc_rel)
+    require_clean_source_worktree_for_changed_docs(root, bool(pending_writes))
+    _apply_context_writes(root, pending_writes)
+    return result
 
 
 def record_metadata(
@@ -1952,14 +1991,17 @@ def finalize_context(
         for doc in discover_docs(root, doc_rel)
         if doc != DEFAULT_TEMP_PLAN
     ]
+    sync_result, pending_index_writes = _prepare_context_index_sync(
+        root, doc_rel, current_docs
+    )
     docs_changed = (
         before_hash is None
         or docs_content_hash(root, current_docs) != before_hash
     )
-    require_clean_source_worktree_for_changed_docs(root, docs_changed)
+    require_clean_source_worktree_for_changed_docs(
+        root, docs_changed or bool(pending_index_writes)
+    )
 
-    sync_result = sync_context_index(root, doc_rel)
-    current_plan = build_plan(root, doc_rel, metadata_rel)
     plan_path = root / DEFAULT_TEMP_PLAN
     plan_bytes = snapshot_file_bytes(plan_path)
     if (plan_path.exists() or plan_path.is_symlink()) and plan_bytes is None:
@@ -1969,32 +2011,36 @@ def finalize_context(
     plan_markdown = (
         plan_bytes.decode("utf-8") if plan_bytes is not None else None
     )
-    resolutions = resolve_unmapped_changes(root, current_plan, plan_markdown)
-    preview = record_metadata(
-        root,
-        doc_rel,
-        metadata_rel,
-        run_mode,
-        if_changed,
-        before_hash,
-        write=False,
-        unmapped_resolutions=resolutions,
-    )
-    candidate = preview["candidate"]
-    code, messages, warnings = validate(
-        root,
-        doc_rel,
-        metadata_override=candidate,
-        allow_temp_plan=True,
-    )
-    if code != 0:
-        raise ValueError("candidate metadata validation failed:\n" + "\n".join(messages))
-
     metadata_path = root / metadata_rel
     original_metadata = snapshot_file_bytes(metadata_path)
     plan_deleted = False
     metadata_written = False
+    original_indexes: dict[str, bytes | None] = {}
     try:
+        original_indexes = _apply_context_writes(root, pending_index_writes)
+        current_plan = build_plan(root, doc_rel, metadata_rel)
+        resolutions = resolve_unmapped_changes(root, current_plan, plan_markdown)
+        preview = record_metadata(
+            root,
+            doc_rel,
+            metadata_rel,
+            run_mode,
+            if_changed,
+            before_hash,
+            write=False,
+            unmapped_resolutions=resolutions,
+        )
+        candidate = preview["candidate"]
+        code, messages, warnings = validate(
+            root,
+            doc_rel,
+            metadata_override=candidate,
+            allow_temp_plan=True,
+        )
+        if code != 0:
+            raise ValueError(
+                "candidate metadata validation failed:\n" + "\n".join(messages)
+            )
         if plan_markdown is not None:
             delete_temp_plan(root, DEFAULT_TEMP_PLAN)
             plan_deleted = True
@@ -2015,6 +2061,8 @@ def finalize_context(
                 atomic_write_bytes(metadata_path, original_metadata)
         if plan_deleted and plan_bytes is not None:
             atomic_write_bytes(plan_path, plan_bytes)
+        if original_indexes:
+            _restore_context_writes(root, original_indexes)
         raise
 
     return {

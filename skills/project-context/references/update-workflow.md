@@ -65,7 +65,7 @@ source link를 추가한 documented 항목은 finalize가 자동 확인한다. p
 
 affected page와 필요한 1-hop 후보 source만 조사한다. rename은 old/new path를 함께 확인한다. 홈의 `source_commit`만 실제 설명 기준점과 맞춘다. concept에는 page별 `source_commit`을 넣지 않는다. index marker는 건드리지 않는다.
 
-dirty source를 설명한 문서는 commit 기준점으로 증명할 수 없으므로 finalize도 최종 방어선에서 거부한다.
+dirty source를 설명한 문서는 commit 기준점으로 증명할 수 없다. `write-plan`, `migrate --apply`, 변경이 발생하는 `sync-index`, `finalize`, 변경 문서를 기록하는 `record`는 source worktree가 dirty면 쓰기 전에 거부한다.
 
 ## 6. 에이전트 안내
 
