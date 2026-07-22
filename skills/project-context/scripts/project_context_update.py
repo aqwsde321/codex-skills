@@ -1892,9 +1892,17 @@ def record_metadata(
     )
     if reviewed_commit_override and override_reviewed_commit is None:
         raise ValueError("reviewed_commit override must be a canonical full commit ID")
+    previous_content_hash = previous_metadata.get("content_hash")
+    has_previous_content_hash = (
+        isinstance(previous_content_hash, str) and bool(previous_content_hash)
+    )
     docs_unchanged = if_changed and (
-        (bool(before_hash) and before_hash == content_hash)
-        or previous_metadata.get("content_hash") == content_hash
+        previous_content_hash == content_hash
+        or (
+            not has_previous_content_hash
+            and bool(before_hash)
+            and before_hash == content_hash
+        )
     )
     require_clean_source_worktree_for_changed_docs(root, not docs_unchanged)
     previous_source_commit = previous_metadata.get("source_commit")
@@ -2007,6 +2015,13 @@ def record_metadata(
             git_output(root, ["rev-parse", "--short", source_commit])
             if source_commit
             else previous_metadata.get("source_commit_short")
+        )
+    elif override_reviewed_commit:
+        source_commit = review_source_commit or override_reviewed_commit
+        source_commit_short = (
+            git_output(root, ["rev-parse", "--short", source_commit])
+            if source_commit
+            else None
         )
     else:
         source_commit = full_head

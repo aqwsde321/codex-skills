@@ -319,6 +319,39 @@ read_when: 실행 흐름 변경 또는 동작 검증
             for path in sorted(docs.rglob("*"))
         }
 
+    def prepare_committed_stale_architecture_index(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        self.record_and_commit_context("docs: add multi-page context")
+        architecture = (
+            self.root
+            / "docs"
+            / "project-context"
+            / "architecture"
+            / "overview.md"
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
+            ),
+            encoding="utf-8",
+        )
+        self.git("add", "docs/project-context/architecture/overview.md")
+        self.git("commit", "-m", "docs: make generated index stale")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        architecture_index = (
+            self.root / "docs/project-context/architecture/index.md"
+        )
+        return context, architecture_index, before_hash
+
     def test_init_record_and_validate(self):
         self.write_context()
 
@@ -581,6 +614,37 @@ read_when: 실행 흐름 변경 또는 동작 검증
             persisted["reviewed_commit"], initial_metadata["reviewed_commit"]
         )
         self.assertEqual(plan["affected_docs"], {"docs/project-context.md": ["app.py"]})
+
+    def test_record_rejects_fresh_snapshot_after_document_change_with_dirty_source(self):
+        context = self.write_context()
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        original_metadata = metadata_path.read_bytes()
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "작은 Python 프로젝트다.", "변경된 Python 프로젝트다."
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+        fresh_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
+            project_context_update.record_metadata(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "update",
+                True,
+                fresh_hash,
+            )
+
+        self.assertEqual(metadata_path.read_bytes(), original_metadata)
 
     def test_finalize_rejects_changed_docs_while_source_worktree_is_dirty(self):
         context = self.write_context()
@@ -1335,32 +1399,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(plan_path.read_bytes(), original_plan)
 
     def test_finalize_rolls_back_synced_indexes_after_final_validation_failure(self):
-        context = self.write_multi_context()
-        project_context_update.sync_context_index(
-            self.root, project_context_update.DEFAULT_DOC
-        )
-        self.record_and_commit_context("docs: add multi-page context")
-        architecture = (
-            self.root
-            / "docs"
-            / "project-context"
-            / "architecture"
-            / "overview.md"
-        )
-        architecture.write_text(
-            architecture.read_text(encoding="utf-8").replace(
-                "description: 모듈 구조와 진입점 상세",
-                "description: 모듈 경계와 애플리케이션 진입점 상세",
-            ),
-            encoding="utf-8",
-        )
-        self.git("add", "docs/project-context/architecture/overview.md")
-        self.git("commit", "-m", "docs: make generated index stale")
-        before_hash = project_context_update.docs_content_hash(
-            self.root,
-            project_context_update.discover_docs(
-                self.root, project_context_update.DEFAULT_DOC
-            ),
+        context, architecture_index, before_hash = (
+            self.prepare_committed_stale_architecture_index()
         )
         plan = project_context_update.build_plan(
             self.root,
@@ -1372,9 +1412,6 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         original_plan = plan_path.read_bytes()
         original_home = context.read_bytes()
-        architecture_index = (
-            self.root / "docs/project-context/architecture/index.md"
-        )
         original_index = architecture_index.read_bytes()
 
         with mock.patch(
@@ -1399,35 +1436,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(plan_path.read_bytes(), original_plan)
 
     def test_finalize_rejects_dirty_source_before_syncing_stale_indexes(self):
-        context = self.write_multi_context()
-        project_context_update.sync_context_index(
-            self.root, project_context_update.DEFAULT_DOC
-        )
-        self.record_and_commit_context("docs: add multi-page context")
-        architecture = (
-            self.root
-            / "docs"
-            / "project-context"
-            / "architecture"
-            / "overview.md"
-        )
-        architecture.write_text(
-            architecture.read_text(encoding="utf-8").replace(
-                "description: 모듈 구조와 진입점 상세",
-                "description: 모듈 경계와 애플리케이션 진입점 상세",
-            ),
-            encoding="utf-8",
-        )
-        self.git("add", "docs/project-context/architecture/overview.md")
-        self.git("commit", "-m", "docs: make generated index stale")
-        before_hash = project_context_update.docs_content_hash(
-            self.root,
-            project_context_update.discover_docs(
-                self.root, project_context_update.DEFAULT_DOC
-            ),
-        )
-        architecture_index = (
-            self.root / "docs/project-context/architecture/index.md"
+        context, architecture_index, before_hash = (
+            self.prepare_committed_stale_architecture_index()
         )
         original_home = context.read_bytes()
         original_index = architecture_index.read_bytes()
@@ -1668,6 +1678,18 @@ read_when: 실행 흐름 변경 또는 동작 검증
             architecture.read_text(encoding="utf-8").replace(
                 "- [Workflow overview](../workflows/overview.md), "
                 "[Workflow details](../workflows/overview.md)",
+                "- [Workflow overview](../workflows/overview.md)<br>"
+                "[Workflow details](../workflows/overview.md)",
+            ),
+            encoding="utf-8",
+        )
+        html_bare_list = project_context_update.collect_semantic_relationships(
+            self.root, concepts
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "- [Workflow overview](../workflows/overview.md)<br>"
+                "[Workflow details](../workflows/overview.md)",
                 "[Workflow overview](../workflows/overview.md)은 구조 결정 뒤의 실행 흐름을 설명한다.",
             ),
             encoding="utf-8",
@@ -1678,6 +1700,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertEqual(evidence_only["neighbors"][concepts[0]], [])
         self.assertEqual(bare_list["neighbors"][concepts[0]], [])
+        self.assertEqual(html_bare_list["neighbors"][concepts[0]], [])
         self.assertEqual(semantic["outgoing"][concepts[0]], [workflows_rel])
         self.assertEqual(semantic["incoming"][workflows_rel], [concepts[0]])
 
@@ -2919,7 +2942,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(code, 1)
         self.assertTrue(any("doc_sources do not match" in message for message in messages))
 
-    def test_record_repairs_all_derived_metadata_when_docs_are_unchanged(self):
+    def test_record_repairs_derived_metadata_without_trusting_invalid_hash(self):
         self.write_context()
         self.record()
         metadata_path = self.root / project_context_update.DEFAULT_METADATA
@@ -2961,7 +2984,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
             self.root, validate_project_context.DEFAULT_DOC
         )
 
-        self.assertTrue(result["review_only"])
+        self.assertFalse(result.get("review_only", False))
         self.assertEqual(persisted["generator"], project_context_update.GENERATOR)
         self.assertEqual(
             persisted["generator_version"], project_context_update.GENERATOR_VERSION

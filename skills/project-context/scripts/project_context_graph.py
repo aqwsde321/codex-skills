@@ -22,6 +22,7 @@ GENERATED_INDEX_RE = re.compile(
     re.DOTALL,
 )
 LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
+HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
 NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
@@ -69,6 +70,7 @@ def _relationship_prose_lines(
             end = link_end - line_start
             remaining = remaining[:start] + remaining[end:]
         remaining = LIST_PREFIX_RE.sub("", remaining, count=1)
+        remaining = HTML_TAG_RE.sub("", remaining)
         if NON_WORD_RE.sub("", remaining):
             prose_lines.add(line_start)
     # ponytail: only same-line prose is recognized, revisit when relationships
