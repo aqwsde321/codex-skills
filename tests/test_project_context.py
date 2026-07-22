@@ -685,6 +685,29 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertEqual(metadata_path.read_bytes(), metadata_before)
 
+    def test_metadata_less_finalize_rejects_fresh_snapshot_with_dirty_source(self):
+        self.write_context()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+        fresh_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "init",
+                True,
+                fresh_hash,
+            )
+
+        self.assertFalse(metadata_path.exists())
+
     def test_record_cli_rejects_changed_docs_while_source_worktree_is_dirty(self):
         context = self.write_context()
         self.record_and_commit_context("docs: add project context")

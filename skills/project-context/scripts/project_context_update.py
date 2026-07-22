@@ -560,6 +560,46 @@ def dirty_source_change_paths(
     ]
 
 
+def dirty_generated_context_change_paths(root: Path) -> list[str]:
+    rows = parse_status_z(
+        run_git_bytes(
+            root,
+            ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        )
+    )
+    paths: list[str] = []
+    for row in rows:
+        for key in ("old_path", "path"):
+            path = row.get(key)
+            if (
+                isinstance(path, str)
+                and is_generated_doc_path(path)
+                and not is_generated_metadata_path(path)
+                and path not in paths
+            ):
+                paths.append(path)
+    return paths
+
+
+def docs_unchanged_for_recording(
+    root: Path,
+    previous_metadata: dict,
+    if_changed: bool,
+    before_hash: str | None,
+    content_hash: str,
+) -> bool:
+    if not if_changed:
+        return False
+    previous_content_hash = previous_metadata.get("content_hash")
+    if isinstance(previous_content_hash, str) and previous_content_hash:
+        return previous_content_hash == content_hash
+    return (
+        bool(before_hash)
+        and before_hash == content_hash
+        and not dirty_generated_context_change_paths(root)
+    )
+
+
 def require_clean_source_worktree_for_changed_docs(
     root: Path,
     docs_changed: bool,
@@ -1892,17 +1932,12 @@ def record_metadata(
     )
     if reviewed_commit_override and override_reviewed_commit is None:
         raise ValueError("reviewed_commit override must be a canonical full commit ID")
-    previous_content_hash = previous_metadata.get("content_hash")
-    has_previous_content_hash = (
-        isinstance(previous_content_hash, str) and bool(previous_content_hash)
-    )
-    docs_unchanged = if_changed and (
-        previous_content_hash == content_hash
-        or (
-            not has_previous_content_hash
-            and bool(before_hash)
-            and before_hash == content_hash
-        )
+    docs_unchanged = docs_unchanged_for_recording(
+        root,
+        previous_metadata,
+        if_changed,
+        before_hash,
+        content_hash,
     )
     require_clean_source_worktree_for_changed_docs(root, not docs_unchanged)
     previous_source_commit = previous_metadata.get("source_commit")
@@ -2084,12 +2119,15 @@ def finalize_context(
     sync_result, pending_index_writes = _prepare_context_index_sync(
         root, doc_rel, current_docs
     )
-    docs_changed = (
-        before_hash is None
-        or docs_content_hash(root, current_docs) != before_hash
+    docs_unchanged = docs_unchanged_for_recording(
+        root,
+        read_json(root / metadata_rel) or {},
+        if_changed,
+        before_hash,
+        docs_content_hash(root, current_docs),
     )
     require_clean_source_worktree_for_changed_docs(
-        root, docs_changed or bool(pending_index_writes)
+        root, not docs_unchanged or bool(pending_index_writes)
     )
 
     plan_path = root / DEFAULT_TEMP_PLAN
