@@ -1849,6 +1849,33 @@ read_when: 실행 흐름 변경 또는 동작 검증
                     relationships["outgoing"][architecture_rel], [workflows_rel]
                 )
 
+    def test_semantic_relation_labels_without_trailing_prose_create_relationships(self):
+        self.write_multi_context()
+        architecture_rel = "docs/project-context/architecture/overview.md"
+        workflows_rel = "docs/project-context/workflows/overview.md"
+        architecture = self.root / architecture_rel
+        baseline = architecture.read_text(encoding="utf-8")
+
+        for sentence in (
+            "Depends on: [Workflow](../workflows/overview.md)",
+            "Calls: [Payment service](../workflows/overview.md)",
+        ):
+            with self.subTest(sentence=sentence):
+                architecture.write_text(
+                    baseline.replace(
+                        "## 근거", f"## 관련 문서\n\n{sentence}\n\n## 근거"
+                    ),
+                    encoding="utf-8",
+                )
+                relationships = (
+                    project_context_update.collect_semantic_relationships(
+                        self.root, [architecture_rel, workflows_rel]
+                    )
+                )
+                self.assertEqual(
+                    relationships["outgoing"][architecture_rel], [workflows_rel]
+                )
+
     def test_source_affected_page_adds_semantic_one_hop_review_candidate(self):
         self.write_multi_context()
         architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
@@ -1856,7 +1883,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
                 "## 근거",
-                "[Workflow overview](../workflows/overview.md)은 구조가 실행되는 순서를 설명한다.\n\n## 근거",
+                "Depends on: [Workflow overview](../workflows/overview.md)\n\n## 근거",
             ),
             encoding="utf-8",
         )
