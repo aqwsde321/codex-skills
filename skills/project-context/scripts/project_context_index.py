@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
 
 INDEX_START_MARKER = "<!-- project-context:index:start -->"
 INDEX_END_MARKER = "<!-- project-context:index:end -->"
-TEMP_PLAN = "docs/project-context/_plan.md"
+DOC_DIR = "docs/project-context"
+TEMP_PLAN = f"{DOC_DIR}/_plan.md"
+AREA_INDEX_GENERATOR = "project-context-index"
 FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 INDEX_FIELD_LIMITS = {
     "title": 80,
     "description": 160,
     "read_when": 160,
+}
+CONCEPT_FIELD_LIMITS = {
+    "type": 40,
+    **INDEX_FIELD_LIMITS,
 }
 
 
@@ -30,50 +36,157 @@ def parse_frontmatter(markdown: str) -> dict[str, str]:
     return fields
 
 
+def set_frontmatter_field(markdown: str, key: str, value: str) -> str:
+    match = FRONTMATTER_RE.match(markdown)
+    if not match:
+        raise ValueError("document must have YAML frontmatter before migration")
+    frontmatter = match.group(0)
+    field_re = re.compile(rf"(?m)^{re.escape(key)}\s*:.*$")
+    replacement = f"{key}: {value}"
+    if field_re.search(frontmatter):
+        next_frontmatter = field_re.sub(replacement, frontmatter, count=1)
+    else:
+        next_frontmatter = frontmatter[:-4] + replacement + "\n---\n"
+    return next_frontmatter + markdown[match.end() :]
+
+
 def escape_markdown_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
+def area_index_for_concept(doc: str) -> str | None:
+    path = PurePosixPath(doc)
+    doc_dir = PurePosixPath(DOC_DIR)
+    try:
+        relative = path.relative_to(doc_dir)
+    except ValueError:
+        return None
+    if len(relative.parts) != 2 or relative.name in {"index.md", "_plan.md"}:
+        return None
+    return (doc_dir / relative.parts[0] / "index.md").as_posix()
+
+
+def wiki_inventory(
+    docs: list[str],
+    primary_doc: str,
+    *,
+    require_indexes: bool = True,
+) -> dict[str, object]:
+    concepts: list[str] = []
+    indexes: list[str] = []
+    flat_pages: list[str] = []
+    errors: list[str] = []
+    doc_dir = PurePosixPath(DOC_DIR)
+
+    for doc in sorted(set(docs)):
+        if doc in {primary_doc, TEMP_PLAN}:
+            continue
+        path = PurePosixPath(doc)
+        try:
+            relative = path.relative_to(doc_dir)
+        except ValueError:
+            errors.append(f"{doc}: context page must be under {DOC_DIR}/")
+            continue
+        if len(relative.parts) == 1:
+            flat_pages.append(doc)
+            continue
+        if len(relative.parts) != 2:
+            errors.append(
+                f"{doc}: context navigation depth must be area/index or area/concept"
+            )
+            continue
+        if relative.name == "index.md":
+            indexes.append(doc)
+        else:
+            concepts.append(doc)
+
+    expected_indexes = sorted(
+        {
+            area_index
+            for concept in concepts
+            if (area_index := area_index_for_concept(concept)) is not None
+        }
+    )
+    if require_indexes:
+        for index in sorted(set(expected_indexes) - set(indexes)):
+            errors.append(f"{index}: missing area index")
+        for index in sorted(set(indexes) - set(expected_indexes)):
+            errors.append(f"{index}: empty area index is not allowed")
+    for flat_page in flat_pages:
+        errors.append(
+            f"{flat_page}: legacy flat page must be migrated to {DOC_DIR}/<area>/<concept>.md"
+        )
+
+    return {
+        "pages": [primary_doc, *concepts],
+        "concepts": concepts,
+        "indexes": indexes,
+        "expected_indexes": expected_indexes,
+        "flat_pages": flat_pages,
+        "errors": errors,
+    }
+
+
+def _validated_entry_fields(
+    doc: str,
+    fields: dict[str, str],
+    limits: dict[str, int],
+) -> tuple[dict[str, str], list[str]]:
+    values: dict[str, str] = {}
+    errors: list[str] = []
+    for field, limit in limits.items():
+        value = fields.get(field, "").strip()
+        if not value:
+            errors.append(f"{doc}: missing index metadata: {field}")
+            continue
+        if len(value) > limit:
+            errors.append(f"{doc}: index metadata {field} exceeds {limit} characters")
+            continue
+        if "[" in value or "]" in value:
+            errors.append(f"{doc}: index metadata {field} must be plain text")
+            continue
+        values[field] = value
+    return values, errors
+
+
 def collect_index_entries(
     root: Path,
-    primary_doc: str,
-    docs: list[str],
+    owner_doc: str,
+    target_docs: list[str],
+    *,
+    concepts: bool = False,
 ) -> tuple[list[dict[str, str]], list[str]]:
     entries: list[dict[str, str]] = []
     errors: list[str] = []
-    primary_dir = (root / primary_doc).parent
+    owner_dir = (root / owner_doc).parent
     seen_titles: dict[str, str] = {}
+    limits = CONCEPT_FIELD_LIMITS if concepts else INDEX_FIELD_LIMITS
 
-    for doc in sorted(doc for doc in docs if doc not in {primary_doc, TEMP_PLAN}):
+    for doc in sorted(target_docs):
         path = root / doc
         if path.is_symlink() or not path.is_file():
             errors.append(f"{doc}: context index source must be a regular file")
             continue
         fields = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
-        values: dict[str, str] = {}
-        for field, limit in INDEX_FIELD_LIMITS.items():
-            value = fields.get(field, "").strip()
-            if not value:
-                errors.append(f"{doc}: missing index metadata: {field}")
-                continue
-            if len(value) > limit:
-                errors.append(f"{doc}: index metadata {field} exceeds {limit} characters")
-                continue
-            if "[" in value or "]" in value:
-                errors.append(f"{doc}: index metadata {field} must be plain text")
-                continue
-            values[field] = value
-        if len(values) != len(INDEX_FIELD_LIMITS):
+        values, field_errors = _validated_entry_fields(doc, fields, limits)
+        errors.extend(field_errors)
+        if field_errors:
+            continue
+        if not concepts and fields.get("generated_by") != AREA_INDEX_GENERATOR:
+            errors.append(
+                f"{doc}: area index must declare generated_by: {AREA_INDEX_GENERATOR}"
+            )
             continue
 
         normalized_title = values["title"].casefold()
         if normalized_title in seen_titles:
             errors.append(
-                f"{doc}: duplicate index title with {seen_titles[normalized_title]}: {values['title']}"
+                f"{doc}: duplicate index title with {seen_titles[normalized_title]}: "
+                f"{values['title']}"
             )
             continue
         seen_titles[normalized_title] = doc
-        relative_path = Path(os.path.relpath(path, start=primary_dir)).as_posix()
+        relative_path = Path(os.path.relpath(path, start=owner_dir)).as_posix()
         entries.append(
             {
                 "path": doc,
@@ -81,7 +194,65 @@ def collect_index_entries(
                 **values,
             }
         )
+    entries.sort(key=lambda entry: (entry["title"].casefold(), entry["path"]))
     return entries, errors
+
+
+def _render_index(
+    entries: list[dict[str, str]],
+    *,
+    heading: str,
+    intro: str,
+) -> str:
+    lines = [INDEX_START_MARKER, f"## {heading}", "", intro, ""]
+    for entry in entries:
+        lines.append(
+            f"- [{escape_markdown_label(entry['title'])}]({entry['href']}) — "
+            f"{entry['description']}; 읽을 때: {entry['read_when']}"
+        )
+    lines.append(INDEX_END_MARKER)
+    return "\n".join(lines)
+
+
+def render_context_indexes(
+    root: Path,
+    primary_doc: str,
+    docs: list[str],
+) -> tuple[dict[str, str] | None, list[str]]:
+    inventory = wiki_inventory(docs, primary_doc)
+    errors = list(inventory["errors"])
+    concepts = list(inventory["concepts"])
+    indexes = list(inventory["indexes"])
+    if errors:
+        return None, errors
+    if not concepts:
+        return {}, []
+
+    home_entries, home_errors = collect_index_entries(root, primary_doc, indexes)
+    errors.extend(home_errors)
+    rendered: dict[str, str] = {
+        primary_doc: _render_index(
+            home_entries,
+            heading="Context Index",
+            intro="작업과 `읽을 때`가 맞는 영역만 연다.",
+        )
+    }
+    for index_doc in indexes:
+        area_concepts = [
+            concept
+            for concept in concepts
+            if area_index_for_concept(concept) == index_doc
+        ]
+        entries, entry_errors = collect_index_entries(
+            root, index_doc, area_concepts, concepts=True
+        )
+        errors.extend(entry_errors)
+        rendered[index_doc] = _render_index(
+            entries,
+            heading="Concepts",
+            intro="작업 목적과 `읽을 때`가 맞는 개념 문서만 연다.",
+        )
+    return (None, errors) if errors else (rendered, [])
 
 
 def render_context_index(
@@ -89,23 +260,10 @@ def render_context_index(
     primary_doc: str,
     docs: list[str],
 ) -> tuple[str | None, list[str]]:
-    entries, errors = collect_index_entries(root, primary_doc, docs)
-    if errors:
+    rendered, errors = render_context_indexes(root, primary_doc, docs)
+    if rendered is None:
         return None, errors
-    lines = [
-        INDEX_START_MARKER,
-        "## Context Index",
-        "",
-        "먼저 이 문서를 읽고, 작업과 `읽을 때`가 맞는 하위 문서만 연다.",
-        "",
-    ]
-    for entry in entries:
-        lines.append(
-            f"- [{escape_markdown_label(entry['title'])}]({entry['href']}) — "
-            f"{entry['description']}; 읽을 때: {entry['read_when']}"
-        )
-    lines.append(INDEX_END_MARKER)
-    return "\n".join(lines), []
+    return rendered.get(primary_doc), errors
 
 
 def extract_context_index(markdown: str) -> tuple[str | None, list[str]]:
@@ -125,3 +283,25 @@ def replace_context_index(markdown: str, rendered_index: str) -> tuple[str, bool
         raise ValueError("; ".join(errors))
     next_markdown = markdown.replace(current_index, rendered_index, 1)
     return next_markdown, next_markdown != markdown
+
+
+def area_title(area: str) -> str:
+    return area.replace("-", " ").replace("_", " ").strip().title() or area
+
+
+def new_area_index_markdown(area: str) -> str:
+    title = area_title(area)
+    return f"""---
+title: {title}
+description: {title} 영역의 프로젝트 컨텍스트
+read_when: {title} 관련 코드를 조사하거나 변경할 때
+generated_by: {AREA_INDEX_GENERATOR}
+---
+
+# {title}
+
+이 영역의 개념 문서를 작업 목적에 따라 선택한다.
+
+{INDEX_START_MARKER}
+{INDEX_END_MARKER}
+"""

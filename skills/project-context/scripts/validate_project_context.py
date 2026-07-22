@@ -5,7 +5,6 @@ import argparse
 import errno
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -18,12 +17,17 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from project_context_index import (  # noqa: E402
+    AREA_INDEX_GENERATOR,
+    CONCEPT_FIELD_LIMITS,
     FRONTMATTER_RE,
+    INDEX_FIELD_LIMITS,
     INDEX_END_MARKER,
     INDEX_START_MARKER,
+    area_index_for_concept,
     extract_context_index,
     parse_frontmatter,
-    render_context_index,
+    render_context_indexes,
+    wiki_inventory,
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
 from project_context_safety import (  # noqa: E402
@@ -45,12 +49,9 @@ DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
 CURRENT_GENERATOR_VERSION = "21"
+CURRENT_SCHEMA_VERSION = 2
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
-MAX_INITIAL_DOCS = 8
-SMALL_REPO_SOURCE_FILE_LIMIT = 10
-SMALL_REPO_DOC_LIMIT = 3
 MIN_SUBPAGE_BODY_CHARS = 500
-MIN_SINGLE_FILE_SECTION_CHARS = 1500
 UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
@@ -99,55 +100,6 @@ SKILL_TRIGGER_TEXT = "$project-context"
 WRITE_AUTHORITY_TEXT = "missing or stale context alone does not authorize writes"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
-PRIMARY_SOURCE_SUFFIXES = {
-    ".c",
-    ".cc",
-    ".cpp",
-    ".cs",
-    ".go",
-    ".gradle",
-    ".graphql",
-    ".h",
-    ".hpp",
-    ".java",
-    ".js",
-    ".jsx",
-    ".kt",
-    ".m",
-    ".mm",
-    ".php",
-    ".proto",
-    ".py",
-    ".rb",
-    ".rs",
-    ".sh",
-    ".sql",
-    ".swift",
-    ".toml",
-    ".ts",
-    ".tsx",
-    ".xml",
-    ".yaml",
-    ".yml",
-}
-PRIMARY_SOURCE_NAMES = {
-    "Dockerfile",
-    "Makefile",
-    "justfile",
-    "package.json",
-    "pom.xml",
-    "pyproject.toml",
-    "go.mod",
-    "Cargo.toml",
-}
-IGNORED_SOURCE_NAMES = {
-    "package-lock.json",
-    "pnpm-lock.yaml",
-    "yarn.lock",
-    "Cargo.lock",
-    "go.sum",
-}
-
 
 def git_output(root: Path, args: list[str]) -> str | None:
     try:
@@ -180,20 +132,6 @@ def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
     except OSError:
         return False
     return result.returncode == 0
-
-
-def git_tracked_files(root: Path) -> list[str]:
-    try:
-        result = subprocess.run(
-            ["git", "--no-pager", "ls-files", "-z"],
-            cwd=root,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return []
-    return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
 def is_external_target(target: str) -> bool:
@@ -353,21 +291,6 @@ def is_context_doc_rel(path: str) -> bool:
     return path == DEFAULT_DOC or path.startswith(f"{DEFAULT_DOC_DIR}/")
 
 
-def is_primary_source_file(path: str) -> bool:
-    if is_context_doc_rel(path):
-        return False
-    name = Path(path).name
-    if name in IGNORED_SOURCE_NAMES:
-        return False
-    if name in PRIMARY_SOURCE_NAMES:
-        return True
-    return Path(path).suffix in PRIMARY_SOURCE_SUFFIXES
-
-
-def count_primary_source_files(root: Path) -> int:
-    return sum(1 for path in git_tracked_files(root) if is_primary_source_file(path))
-
-
 def extract_evidence_section(markdown: str) -> str:
     match = EVIDENCE_HEADING_RE.search(markdown)
     if not match:
@@ -393,6 +316,13 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     markdown = doc_path.read_text(encoding="utf-8", errors="replace")
     body = FRONTMATTER_RE.sub("", markdown).strip()
     frontmatter = parse_frontmatter(markdown)
+    is_primary = doc_rel == DEFAULT_DOC
+    is_area_index = doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and Path(doc_rel).name == "index.md"
+    is_concept = (
+        doc_rel.startswith(f"{DEFAULT_DOC_DIR}/")
+        and doc_rel != TEMP_PLAN
+        and not is_area_index
+    )
     absolute_links = [
         link
         for link in iter_markdown_links(markdown)
@@ -425,6 +355,19 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
         if mode not in {"single-page", "multi-page"}:
             errors.append(f"{doc_rel}: missing metadata: mode single-page|multi-page")
 
+    if is_area_index:
+        if frontmatter.get("generated_by") != AREA_INDEX_GENERATOR:
+            errors.append(
+                f"{doc_rel}: missing metadata: generated_by: {AREA_INDEX_GENERATOR}"
+            )
+        for field in INDEX_FIELD_LIMITS:
+            if not frontmatter.get(field, "").strip():
+                errors.append(f"{doc_rel}: missing metadata: {field}")
+    elif is_concept:
+        for field in CONCEPT_FIELD_LIMITS:
+            if not frontmatter.get(field, "").strip():
+                errors.append(f"{doc_rel}: missing metadata: {field}")
+
     source_commit = frontmatter.get("source_commit", "").strip()
     if require_metadata and not source_commit:
         errors.append(f"{doc_rel}: missing metadata: source_commit")
@@ -438,23 +381,19 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
             )
 
     evidence_section = extract_evidence_section(markdown)
-    if not evidence_section:
+    if not is_area_index and not evidence_section:
         errors.append(f"{doc_rel}: missing section: ## 근거")
 
     links = list(iter_relative_links(markdown))
     evidence_links = set(iter_relative_links(evidence_section))
-    if not links:
+    if not is_area_index and not links:
         errors.append(f"{doc_rel}: missing relative source links")
 
     broken_links: list[str] = []
-    links_to_index = False
     evidence_source_links: list[str] = []
     doc_dir = doc_path.parent
-    index_path = (root / DEFAULT_DOC).resolve()
     for link in links:
         target_path = (doc_dir / link).resolve()
-        if target_path == index_path:
-            links_to_index = True
         try:
             target_path.relative_to(root)
         except ValueError:
@@ -471,15 +410,14 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     for link in broken_links:
         errors.append(f"{doc_rel}: broken source link: {link}")
 
-    if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and not links_to_index:
-        errors.append(f"{doc_rel}: missing link back to {DEFAULT_DOC}")
-
-    if evidence_section and not evidence_source_links:
+    if not is_area_index and evidence_section and not evidence_source_links:
         errors.append(f"{doc_rel}: missing source evidence links in ## 근거")
 
-    if doc_rel.startswith(f"{DEFAULT_DOC_DIR}/") and doc_rel != TEMP_PLAN and len(body) < MIN_SUBPAGE_BODY_CHARS:
-        warnings.append(f"{doc_rel}: thin page; merge into {DEFAULT_DOC} or expand with source-grounded guidance")
-    if doc_rel == DEFAULT_DOC:
+    if is_concept and len(body) < MIN_SUBPAGE_BODY_CHARS:
+        warnings.append(
+            f"{doc_rel}: thin page; verify it is a distinct concept with source-grounded guidance"
+        )
+    if is_primary:
         section_patterns = PRIMARY_DOC_SECTION_PATTERNS
         if frontmatter.get("mode") == "multi-page":
             section_patterns = {
@@ -515,6 +453,11 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
 
     if metadata.get("generator") != "project-context":
         errors.append(f"{DEFAULT_METADATA}: generator must be project-context")
+    if metadata.get("schema_version") != CURRENT_SCHEMA_VERSION:
+        errors.append(
+            f"{DEFAULT_METADATA}: schema_version must be {CURRENT_SCHEMA_VERSION}; "
+            "run project_context_update.py migrate --apply"
+        )
     generator_version = metadata.get("generator_version")
     if not isinstance(generator_version, str) or not generator_version.strip():
         errors.append(f"{DEFAULT_METADATA}: missing generator_version")
@@ -602,12 +545,22 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         if content_hash != current_hash:
             errors.append(f"{DEFAULT_METADATA}: content_hash mismatch; run project_context_update.py record after valid docs changes")
 
-    recorded_docs = metadata.get("docs")
-    if isinstance(recorded_docs, list) and all(isinstance(doc, str) for doc in recorded_docs):
-        if sorted(recorded_docs) != sorted(docs):
-            errors.append(f"{DEFAULT_METADATA}: docs list does not match current context documents")
+    inventory = wiki_inventory(docs, primary_doc)
+    expected_pages = list(inventory["pages"])
+    expected_indexes = list(inventory["indexes"])
+    recorded_pages = metadata.get("pages")
+    if isinstance(recorded_pages, list) and all(isinstance(doc, str) for doc in recorded_pages):
+        if sorted(recorded_pages) != sorted(expected_pages):
+            errors.append(f"{DEFAULT_METADATA}: pages list does not match current context pages")
     else:
-        errors.append(f"{DEFAULT_METADATA}: docs must be a string list")
+        errors.append(f"{DEFAULT_METADATA}: pages must be a string list")
+
+    recorded_indexes = metadata.get("indexes")
+    if isinstance(recorded_indexes, list) and all(isinstance(doc, str) for doc in recorded_indexes):
+        if sorted(recorded_indexes) != sorted(expected_indexes):
+            errors.append(f"{DEFAULT_METADATA}: indexes list does not match current area indexes")
+    else:
+        errors.append(f"{DEFAULT_METADATA}: indexes must be a string list")
 
     doc_sources = metadata.get("doc_sources")
     if not isinstance(doc_sources, dict) or not all(
@@ -617,10 +570,10 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         for doc, sources in doc_sources.items()
     ):
         errors.append(f"{DEFAULT_METADATA}: doc_sources must map document paths to source path lists")
-    elif sorted(doc_sources) != sorted(docs):
-        errors.append(f"{DEFAULT_METADATA}: doc_sources keys must match current context documents")
+    elif sorted(doc_sources) != sorted(expected_pages):
+        errors.append(f"{DEFAULT_METADATA}: doc_sources keys must match current context pages")
     else:
-        expected_doc_sources = collect_doc_sources(root, docs)
+        expected_doc_sources = collect_doc_sources(root, expected_pages)
         normalized_actual = {doc: sorted(set(sources)) for doc, sources in doc_sources.items()}
         normalized_expected = {
             doc: sorted(set(sources)) for doc, sources in expected_doc_sources.items()
@@ -634,25 +587,34 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
 def validate_index_links(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    primary_path = root / doc_rel
-    if not primary_path.exists() or not primary_path.is_file():
-        return errors, warnings
-    subdocs = [doc for doc in docs if doc != doc_rel]
-    if not subdocs:
-        return errors, warnings
-
-    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
-    linked_targets = set()
-    for link in iter_relative_links(markdown):
-        target_path = (primary_path.parent / link).resolve()
-        try:
-            linked_targets.add(target_path.relative_to(root).as_posix())
-        except ValueError:
+    inventory = wiki_inventory(docs, doc_rel)
+    concepts = list(inventory["concepts"])
+    owners = {
+        doc_rel: list(inventory["indexes"]),
+        **{
+            index: [
+                concept
+                for concept in concepts
+                if area_index_for_concept(concept) == index
+            ]
+            for index in inventory["indexes"]
+        },
+    }
+    for owner, targets in owners.items():
+        owner_path = root / owner
+        if not owner_path.is_file() or owner_path.is_symlink():
             continue
-
-    for subdoc in subdocs:
-        if subdoc not in linked_targets:
-            errors.append(f"{doc_rel}: missing index link to context page: {subdoc}")
+        markdown = owner_path.read_text(encoding="utf-8", errors="replace")
+        linked_targets = set()
+        for link in iter_relative_links(markdown):
+            target_path = (owner_path.parent / link).resolve()
+            try:
+                linked_targets.add(target_path.relative_to(root).as_posix())
+            except ValueError:
+                continue
+        for target in targets:
+            if target not in linked_targets:
+                errors.append(f"{owner}: missing index link to context page: {target}")
 
     return errors, warnings
 
@@ -664,29 +626,40 @@ def validate_deterministic_context_index(
 ) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    primary_path = root / doc_rel
-    if primary_path.is_symlink() or not primary_path.is_file():
+    expected_indexes, metadata_errors = render_context_indexes(root, doc_rel, docs)
+    errors.extend(metadata_errors)
+    if expected_indexes is None:
         return errors, warnings
-    markdown = primary_path.read_text(encoding="utf-8", errors="replace")
-    mode = parse_frontmatter(markdown).get("mode")
-    if mode != "multi-page":
-        if INDEX_START_MARKER in markdown or INDEX_END_MARKER in markdown:
-            warnings.append(f"{doc_rel}: single-page document should not contain context index markers")
+    if not expected_indexes:
+        primary_path = root / doc_rel
+        if primary_path.is_file() and not primary_path.is_symlink():
+            markdown = primary_path.read_text(encoding="utf-8", errors="replace")
+            if INDEX_START_MARKER in markdown or INDEX_END_MARKER in markdown:
+                warnings.append(
+                    f"{doc_rel}: home-only wiki should not contain context index markers"
+                )
         return errors, warnings
 
-    current_index, marker_errors = extract_context_index(markdown)
-    errors.extend(f"{doc_rel}: {error}" for error in marker_errors)
-    expected_index, metadata_errors = render_context_index(root, doc_rel, docs)
-    errors.extend(metadata_errors)
-    if current_index is not None and expected_index is not None and current_index != expected_index:
-        errors.append(f"{doc_rel}: deterministic context index is stale; run project_context_update.py sync-index")
+    for index_doc, expected_index in expected_indexes.items():
+        index_path = root / index_doc
+        if index_path.is_symlink() or not index_path.is_file():
+            continue
+        markdown = index_path.read_text(encoding="utf-8", errors="replace")
+        current_index, marker_errors = extract_context_index(markdown)
+        errors.extend(f"{index_doc}: {error}" for error in marker_errors)
+        if current_index is not None and current_index != expected_index:
+            errors.append(
+                f"{index_doc}: deterministic context index is stale; "
+                "run project_context_update.py sync-index"
+            )
     return errors, warnings
 
 
 def validate_context_relationships(root: Path, doc_rel: str, docs: list[str]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    subdocs = [doc for doc in docs if doc != doc_rel]
+    inventory = wiki_inventory(docs, doc_rel, require_indexes=False)
+    subdocs = list(inventory["concepts"])
     if len(subdocs) < 3:
         return errors, warnings
 
@@ -738,39 +711,6 @@ def validate_primary_size(root: Path, doc_rel: str) -> tuple[list[str], list[str
                 f"{doc_rel}: single-page body has {issue['body_chars']} characters; "
                 f"split into indexed supporting pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
             )
-    return errors, warnings
-
-
-def doc_body_length(root: Path, doc_rel: str) -> int:
-    path = root / doc_rel
-    if not path.exists() or not path.is_file():
-        return 0
-    markdown = path.read_text(encoding="utf-8", errors="replace")
-    return len(FRONTMATTER_RE.sub("", markdown).strip())
-
-
-def validate_section_directories(root: Path, docs: list[str]) -> tuple[list[str], list[str]]:
-    errors: list[str] = []
-    warnings: list[str] = []
-    section_docs: dict[str, list[str]] = {}
-    for doc in docs:
-        if not doc.startswith(f"{DEFAULT_DOC_DIR}/"):
-            continue
-        remainder = doc[len(DEFAULT_DOC_DIR) + 1 :]
-        if "/" not in remainder:
-            continue
-        section = remainder.split("/", 1)[0]
-        section_docs.setdefault(section, []).append(doc)
-
-    for section, section_doc_list in sorted(section_docs.items()):
-        if len(section_doc_list) == 1:
-            doc = section_doc_list[0]
-            body_length = doc_body_length(root, doc)
-            if body_length < MIN_SINGLE_FILE_SECTION_CHARS:
-                warnings.append(
-                    f"{DEFAULT_DOC_DIR}/{section}/: single-file section directory; prefer a broader page or heading unless this boundary is substantial"
-                )
-
     return errors, warnings
 
 
@@ -826,18 +766,13 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
     docs = discover_docs(root, doc_rel)
     docs = [doc for doc in docs if doc != TEMP_PLAN]
+    inventory = wiki_inventory(docs, doc_rel)
+    errors.extend(inventory["errors"])
     metadata_errors, metadata_warnings = validate_metadata(root, docs, doc_rel)
     errors.extend(metadata_errors)
     warnings.extend(metadata_warnings)
-    if len(docs) > MAX_INITIAL_DOCS:
-        warnings.append(f"many context docs: {len(docs)}; initial runs usually stay at {MAX_INITIAL_DOCS} or fewer")
-    primary_source_count = count_primary_source_files(root)
-    if 0 < primary_source_count <= SMALL_REPO_SOURCE_FILE_LIMIT and len(docs) > SMALL_REPO_DOC_LIMIT:
-        warnings.append(
-            f"small repo with {primary_source_count} primary source file(s): prefer {DEFAULT_DOC} plus at most 1-2 supporting pages"
-        )
-    for index, doc in enumerate(docs):
-        doc_errors, doc_warnings = validate_doc(root, doc, require_metadata=index == 0)
+    for doc in docs:
+        doc_errors, doc_warnings = validate_doc(root, doc, require_metadata=doc == doc_rel)
         errors.extend(doc_errors)
         warnings.extend(doc_warnings)
     index_errors, index_warnings = validate_index_links(root, doc_rel, docs)
@@ -857,10 +792,6 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
     size_errors, size_warnings = validate_primary_size(root, doc_rel)
     errors.extend(size_errors)
     warnings.extend(size_warnings)
-    section_errors, section_warnings = validate_section_directories(root, docs)
-    errors.extend(section_errors)
-    warnings.extend(section_warnings)
-
     agent_files = ("AGENTS.md", "CLAUDE.md")
     existing_agent_files = [
         agent_file

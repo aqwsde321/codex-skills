@@ -5,12 +5,13 @@ import argparse
 import errno
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -18,11 +19,18 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from project_context_index import (  # noqa: E402
+    CONCEPT_FIELD_LIMITS,
+    INDEX_END_MARKER,
+    INDEX_FIELD_LIMITS,
+    INDEX_START_MARKER,
+    new_area_index_markdown,
     parse_frontmatter,
-    render_context_index,
+    render_context_indexes,
     replace_context_index,
+    set_frontmatter_field,
+    wiki_inventory,
 )
-from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_markdown import iter_inline_links, iter_inline_link_targets  # noqa: E402
 from project_context_safety import (  # noqa: E402
     atomic_write_text,
     canonical_commit_oid,
@@ -46,6 +54,7 @@ DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
 GENERATOR_VERSION = "21"
+SCHEMA_VERSION = 2
 PLAN_SENTINEL = "# Project Context Draft Plan"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
@@ -641,20 +650,20 @@ def docs_content_hash(root: Path, docs: list[str]) -> str:
 
 
 def context_index_needs_sync(root: Path, doc_rel: str, docs: list[str]) -> bool:
-    doc_path = root / doc_rel
-    if doc_path.is_symlink() or not doc_path.is_file():
-        return False
-    markdown = read_text(doc_path)
-    if parse_frontmatter(markdown).get("mode") != "multi-page":
-        return False
-    rendered_index, errors = render_context_index(root, doc_rel, docs)
-    if errors or rendered_index is None:
+    rendered_indexes, errors = render_context_indexes(root, doc_rel, docs)
+    if errors or rendered_indexes is None:
         return True
-    try:
-        _, changed = replace_context_index(markdown, rendered_index)
-    except ValueError:
-        return True
-    return changed
+    for index_doc, rendered_index in rendered_indexes.items():
+        index_path = root / index_doc
+        if index_path.is_symlink() or not index_path.is_file():
+            return True
+        try:
+            _, changed = replace_context_index(read_text(index_path), rendered_index)
+        except ValueError:
+            return True
+        if changed:
+            return True
+    return False
 
 
 def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
@@ -667,14 +676,23 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     last_update_metadata, last_update_metadata_source = load_last_update_metadata(root, metadata_rel)
     previous_commit, previous_updated_at, previous_source = load_previous_context(root, doc_rel, metadata_rel)
     docs = discover_docs(root, doc_rel)
-    source_map = collect_doc_sources(root, docs)
+    inventory = wiki_inventory(docs, doc_rel)
+    pages = list(inventory["pages"])
+    indexes = list(inventory["indexes"])
+    source_map = collect_doc_sources(root, pages)
     current_content_hash = docs_content_hash(root, docs)
     persisted_metadata = read_json(root / metadata_rel)
+    migration_required = bool(inventory["flat_pages"]) or bool(
+        persisted_metadata
+        and persisted_metadata.get("schema_version") != SCHEMA_VERSION
+    )
     metadata_document_state_stale = not persisted_metadata or any(
         persisted_metadata.get(field) != expected
         for field, expected in {
+            "schema_version": SCHEMA_VERSION,
             "primary_doc": doc_rel,
-            "docs": docs,
+            "pages": pages,
+            "indexes": indexes,
             "doc_sources": source_map,
             "content_hash": current_content_hash,
         }.items()
@@ -738,7 +756,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         and not is_agent_reference_only_change(root, path, previous_commit)
     ]
     affected_docs, unmapped_changes = map_affected_docs(
-        docs,
+        pages,
         source_map,
         source_change_paths,
         doc_rel,
@@ -748,6 +766,8 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     budget_warnings = soft_diff_budget_warnings(source_change_paths, affected_docs, doc_rel)
     if not (root / doc_rel).exists():
         recommended_action = "create-docs"
+    elif migration_required:
+        recommended_action = "migrate-wiki-schema"
     elif affected_docs:
         recommended_action = "update-affected-docs"
     elif source_change_paths:
@@ -789,6 +809,10 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "metadata_path": metadata_rel,
         "primary_doc": doc_rel,
         "docs": docs,
+        "pages": pages,
+        "indexes": indexes,
+        "wiki_structure_errors": inventory["errors"],
+        "migration_required": migration_required,
         "doc_sources": source_map,
         "commit_evidence_label": commit_label,
         "commit_evidence": commit_output,
@@ -865,6 +889,7 @@ def format_plan(plan: dict) -> str:
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
         f"- required_actions: {', '.join(action for action in required_actions if action)}",
+        f"- migration_required: {str(bool(plan.get('migration_required'))).lower()}",
         f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         "",
@@ -880,6 +905,12 @@ def format_plan(plan: dict) -> str:
         "## Document Structure Issues",
         *format_structure_issues(plan.get("structure_issues", [])),
     ])
+    wiki_errors = plan.get("wiki_structure_errors", [])
+    lines.extend(["", "## Wiki Structure Errors"])
+    if wiki_errors:
+        lines.extend(f"- {error}" for error in wiki_errors)
+    else:
+        lines.append("- (none)")
     lines.extend([
         "",
         "## Project Context Git Summary",
@@ -966,6 +997,7 @@ def format_temp_plan(plan: dict) -> str:
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
         f"- required_actions: {', '.join(action for action in required_actions if action)}",
+        f"- migration_required: {str(bool(plan.get('migration_required'))).lower()}",
         f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
@@ -993,6 +1025,12 @@ def format_temp_plan(plan: dict) -> str:
         "",
         *format_structure_issues(plan.get("structure_issues", [])),
     ])
+    wiki_errors = plan.get("wiki_structure_errors", [])
+    lines.extend(["", "## Wiki Structure Errors", ""])
+    if wiki_errors:
+        lines.extend(f"- {error}" for error in wiki_errors)
+    else:
+        lines.append("- (none)")
 
     lines.extend([
         "",
@@ -1104,32 +1142,303 @@ def delete_temp_plan(root: Path, plan_rel: str) -> tuple[str, bool]:
     return f"temporary plan deleted: {plan_rel}", True
 
 
+def _split_link_suffix(target: str) -> tuple[str, str]:
+    positions = [position for marker in ("#", "?") if (position := target.find(marker)) >= 0]
+    if not positions:
+        return target, ""
+    split_at = min(positions)
+    return target[:split_at], target[split_at:]
+
+
+def _rewrite_migrated_links(
+    root: Path,
+    markdown: str,
+    old_doc: str,
+    new_doc: str,
+    moves: dict[str, str],
+) -> str:
+    replacements: list[tuple[int, int, str]] = []
+    old_dir = (root / old_doc).parent
+    new_dir = (root / new_doc).parent
+    for target, start, end in iter_inline_links(markdown):
+        path_part, suffix = _split_link_suffix(target)
+        if (
+            not path_part
+            or is_external_target(target)
+            or path_part.startswith("/")
+        ):
+            continue
+        old_target = (old_dir / unquote(path_part)).resolve()
+        try:
+            old_target_rel = old_target.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        next_target_rel = moves.get(old_target_rel, old_target_rel)
+        if old_doc == new_doc and next_target_rel == old_target_rel:
+            continue
+        relative = Path(
+            os.path.relpath(root / next_target_rel, start=new_dir)
+        ).as_posix()
+        replacements.append((start, end, quote(relative, safe="/:@") + suffix))
+
+    result = markdown
+    for start, end, replacement in reversed(replacements):
+        result = result[:start] + replacement + result[end:]
+    return result
+
+
+def _ensure_index_markers(markdown: str, doc: str) -> str:
+    start_count = markdown.count(INDEX_START_MARKER)
+    end_count = markdown.count(INDEX_END_MARKER)
+    if start_count == end_count == 1:
+        return markdown
+    if start_count or end_count:
+        raise ValueError(f"{doc}: context index must have exactly one start and end marker")
+    block = f"{INDEX_START_MARKER}\n{INDEX_END_MARKER}"
+    evidence = re.search(r"(?m)^##\s+근거\s*$", markdown)
+    if evidence:
+        return markdown[: evidence.start()].rstrip() + f"\n\n{block}\n\n" + markdown[evidence.start() :]
+    return markdown.rstrip() + f"\n\n{block}\n"
+
+
+def _validate_migration_fields(
+    documents: dict[str, str],
+    concepts: list[str],
+    indexes: list[str],
+) -> list[str]:
+    errors: list[str] = []
+    for doc, limits in [
+        *((concept, CONCEPT_FIELD_LIMITS) for concept in concepts),
+        *((index, INDEX_FIELD_LIMITS) for index in indexes),
+    ]:
+        fields = parse_frontmatter(documents[doc])
+        for field, limit in limits.items():
+            value = fields.get(field, "").strip()
+            if not value:
+                errors.append(f"{doc}: missing index metadata: {field}")
+            elif len(value) > limit:
+                errors.append(
+                    f"{doc}: index metadata {field} exceeds {limit} characters"
+                )
+            elif "[" in value or "]" in value:
+                errors.append(f"{doc}: index metadata {field} must be plain text")
+    return errors
+
+
+def _prepare_wiki_migration(root: Path, doc_rel: str) -> tuple[dict, dict[str, str]]:
+    require_git_repository(root)
+    require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
+    docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
+    metadata_path = root / DEFAULT_METADATA
+    metadata = read_json(metadata_path)
+    if metadata_path.exists() and metadata is None:
+        raise ValueError(
+            f"invalid migration metadata; repair or remove {DEFAULT_METADATA}"
+        )
+    metadata = metadata or {}
+    source_schema_version = metadata.get("schema_version", 1)
+    if source_schema_version not in {1, SCHEMA_VERSION}:
+        raise ValueError(
+            f"unsupported project-context schema_version: {source_schema_version}"
+        )
+    inventory = wiki_inventory(docs, doc_rel, require_indexes=False)
+    errors = [
+        error
+        for error in inventory["errors"]
+        if "legacy flat page must be migrated" not in error
+    ]
+    moves: dict[str, str] = {}
+    for flat_doc in inventory["flat_pages"]:
+        stem = Path(flat_doc).stem
+        destination = f"{DEFAULT_DOC_DIR}/{stem}/overview.md"
+        destination_path = root / destination
+        if destination in docs or destination_path.exists() or destination_path.is_symlink():
+            errors.append(f"{flat_doc}: migration destination already exists: {destination}")
+        moves[flat_doc] = destination
+
+    future_concepts = sorted([*inventory["concepts"], *moves.values()])
+    future_indexes = sorted(
+        {
+            f"{DEFAULT_DOC_DIR}/{Path(concept).parent.name}/index.md"
+            for concept in future_concepts
+        }
+    )
+    existing_indexes = set(inventory["indexes"])
+    empty_indexes = sorted(existing_indexes - set(future_indexes))
+    for index in empty_indexes:
+        errors.append(f"{index}: empty area index is not allowed")
+    if errors:
+        raise ValueError("\n".join(errors))
+
+    documents: dict[str, str] = {}
+    source_docs = [doc_rel, *inventory["concepts"], *inventory["flat_pages"], *inventory["indexes"]]
+    for old_doc in source_docs:
+        path = root / old_doc
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"context document must be a regular file: {old_doc}")
+        new_doc = moves.get(old_doc, old_doc)
+        markdown = _rewrite_migrated_links(
+            root, read_text(path), old_doc, new_doc, moves
+        )
+        if new_doc in future_concepts and not parse_frontmatter(markdown).get("type"):
+            markdown = set_frontmatter_field(markdown, "type", "concept")
+        if new_doc == doc_rel:
+            markdown = set_frontmatter_field(
+                markdown, "mode", "multi-page" if future_concepts else "single-page"
+            )
+            if future_concepts:
+                markdown = _ensure_index_markers(markdown, new_doc)
+        elif new_doc in future_indexes:
+            markdown = set_frontmatter_field(
+                markdown, "generated_by", "project-context-index"
+            )
+            markdown = _ensure_index_markers(markdown, new_doc)
+        documents[new_doc] = markdown
+
+    created_indexes = sorted(set(future_indexes) - existing_indexes)
+    for index_doc in created_indexes:
+        area = Path(index_doc).parent.name
+        documents[index_doc] = new_area_index_markdown(area)
+
+    field_errors = _validate_migration_fields(
+        documents, future_concepts, future_indexes
+    )
+    if field_errors:
+        raise ValueError("\n".join(field_errors))
+
+    plan = {
+        "from_schema_version": source_schema_version,
+        "to_schema_version": SCHEMA_VERSION,
+        "moves": moves,
+        "created_indexes": created_indexes,
+        "updated_docs": sorted(documents),
+        "pages": [doc_rel, *future_concepts],
+        "indexes": future_indexes,
+    }
+    return plan, documents
+
+
+def build_wiki_migration(root: Path, doc_rel: str) -> dict:
+    plan, _ = _prepare_wiki_migration(root, doc_rel)
+    return plan
+
+
+def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
+    plan_path = root / DEFAULT_TEMP_PLAN
+    if plan_path.exists() or plan_path.is_symlink():
+        raise ValueError(
+            f"temporary plan must be deleted before migration: {DEFAULT_TEMP_PLAN}"
+        )
+    plan, documents = _prepare_wiki_migration(root, doc_rel)
+    written_docs: list[str] = []
+    for target, markdown in documents.items():
+        target_path = root / target
+        parent_symlink = symlink_parent(root, target)
+        if parent_symlink:
+            raise ValueError(
+                f"migration destination parent must not be a symlink: {parent_symlink}"
+            )
+        if (
+            target_path.is_file()
+            and not target_path.is_symlink()
+            and read_text(target_path) == markdown
+        ):
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(target_path, markdown)
+        written_docs.append(target)
+    for source, target in plan["moves"].items():
+        if source != target:
+            (root / source).unlink()
+
+    sync_result = sync_context_index(root, doc_rel)
+    docs = discover_docs(root, doc_rel)
+    current_hash = docs_content_hash(root, docs)
+    metadata = record_metadata(
+        root,
+        doc_rel,
+        DEFAULT_METADATA,
+        run_mode,
+        True,
+        current_hash,
+    )
+    return {
+        **plan,
+        "applied": True,
+        "written_docs": sorted(written_docs),
+        "sync": sync_result,
+        "metadata": metadata,
+    }
+
+
 def sync_context_index(root: Path, doc_rel: str) -> dict:
     require_git_repository(root)
     require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
     doc_path = root / doc_rel
     if doc_path.is_symlink() or not doc_path.is_file():
         raise ValueError(f"primary context document must be a regular file: {doc_rel}")
-    markdown = read_text(doc_path)
-    if parse_frontmatter(markdown).get("mode") != "multi-page":
+    docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
+    inventory = wiki_inventory(docs, doc_rel, require_indexes=False)
+    if inventory["errors"]:
+        raise ValueError("\n".join(inventory["errors"]))
+    concepts = list(inventory["concepts"])
+    documents = {
+        concept: read_text(root / concept)
+        for concept in concepts
+    }
+    field_errors = _validate_migration_fields(documents, concepts, [])
+    if field_errors:
+        raise ValueError("\n".join(field_errors))
+
+    created_indexes: list[str] = []
+    for index_doc in inventory["expected_indexes"]:
+        index_path = root / index_doc
+        if index_doc in inventory["indexes"]:
+            continue
+        parent_symlink = symlink_parent(root, index_doc)
+        if parent_symlink:
+            raise ValueError(
+                f"area index parent must not be a symlink: {parent_symlink}"
+            )
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(
+            index_path, new_area_index_markdown(Path(index_doc).parent.name)
+        )
+        created_indexes.append(index_doc)
+
+    if created_indexes:
+        docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
+    rendered_indexes, errors = render_context_indexes(root, doc_rel, docs)
+    if errors or rendered_indexes is None:
+        raise ValueError("\n".join(errors))
+    if not rendered_indexes:
         return {
             "changed": False,
             "skipped": True,
-            "reason": "primary document is not in multi-page mode",
+            "reason": "wiki has no concept pages",
             "doc": doc_rel,
+            "changed_docs": [],
         }
-    docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
-    rendered_index, errors = render_context_index(root, doc_rel, docs)
-    if errors or rendered_index is None:
-        raise ValueError("\n".join(errors))
-    next_markdown, changed = replace_context_index(markdown, rendered_index)
-    if changed:
-        doc_path.write_text(next_markdown, encoding="utf-8")
+
+    pending_writes: dict[str, str] = {}
+    for index_doc, rendered_index in rendered_indexes.items():
+        index_path = root / index_doc
+        if index_path.is_symlink() or not index_path.is_file():
+            raise ValueError(f"index document must be a regular file: {index_doc}")
+        next_markdown, changed = replace_context_index(
+            read_text(index_path), rendered_index
+        )
+        if changed:
+            pending_writes[index_doc] = next_markdown
+    for index_doc, markdown in pending_writes.items():
+        atomic_write_text(root / index_doc, markdown)
     return {
-        "changed": changed,
+        "changed": bool(created_indexes or pending_writes),
         "skipped": False,
         "doc": doc_rel,
-        "supporting_docs": len(docs) - 1,
+        "changed_docs": sorted(set(created_indexes) | set(pending_writes)),
+        "created_indexes": created_indexes,
+        "indexes": len(rendered_indexes) - 1,
     }
 
 
@@ -1147,7 +1456,12 @@ def record_metadata(
     require_regular_file_or_missing(root, metadata_rel, "metadata path")
     full_head, short_head = git_head(root)
     docs = discover_docs(root, doc_rel)
-    source_map = collect_doc_sources(root, docs)
+    inventory = wiki_inventory(docs, doc_rel)
+    if inventory["errors"]:
+        raise ValueError("\n".join(inventory["errors"]))
+    pages = list(inventory["pages"])
+    indexes = list(inventory["indexes"])
+    source_map = collect_doc_sources(root, pages)
     content_hash = docs_content_hash(root, docs)
     previous_metadata = read_json(root / metadata_rel) or {}
     docs_unchanged = if_changed and (
@@ -1207,8 +1521,10 @@ def record_metadata(
     expected_derived_metadata = {
         "generator": GENERATOR,
         "generator_version": GENERATOR_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "primary_doc": doc_rel,
-        "docs": docs,
+        "pages": pages,
+        "indexes": indexes,
         "doc_sources": source_map,
         "content_hash": content_hash,
     }
@@ -1233,7 +1549,8 @@ def record_metadata(
             "source_commit": previous_metadata.get("source_commit"),
             "source_commit_short": previous_metadata.get("source_commit_short"),
             "reviewed_commit": previous_metadata.get("reviewed_commit"),
-            "docs": docs,
+            "pages": pages,
+            "indexes": indexes,
             "content_hash": content_hash,
         }
 
@@ -1253,13 +1570,15 @@ def record_metadata(
     metadata = {
         "generator": GENERATOR,
         "generator_version": GENERATOR_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "updated_at": updated_at,
         "run_mode": run_mode,
         "source_commit": source_commit,
         "source_commit_short": source_commit_short,
         "reviewed_commit": full_head,
         "primary_doc": doc_rel,
-        "docs": docs,
+        "pages": pages,
+        "indexes": indexes,
         "doc_sources": source_map,
         "content_hash": content_hash,
     }
@@ -1270,11 +1589,12 @@ def record_metadata(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
-    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "sync-index", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; sync-index refreshes the deterministic multi-page router; snapshot prints the current docs content hash; record writes metadata after docs update.")
+    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "migrate", "sync-index", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; migrate plans or applies schema v2 hierarchy migration; sync-index refreshes deterministic wiki indexes; snapshot prints the current docs content hash; record writes metadata after docs update.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--mode", choices=["init", "update"], default="update", help="Project context run mode stored in metadata.")
     parser.add_argument("--if-changed", action="store_true", help="Preserve the documentation source commit when docs are unchanged while recording newly reviewed commits.")
     parser.add_argument("--before-hash", help="Docs content hash captured before the run. With --if-changed, metadata is skipped when it still matches.")
+    parser.add_argument("--apply", action="store_true", help="Apply the migration. Without this flag, migrate is read-only.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     args = parser.parse_args()
 
@@ -1314,6 +1634,10 @@ def main() -> int:
                         "last_update_metadata": plan.get("last_update_metadata"),
                         "last_update_metadata_source": plan.get("last_update_metadata_source"),
                         "docs": plan.get("docs", []),
+                        "pages": plan.get("pages", []),
+                        "indexes": plan.get("indexes", []),
+                        "migration_required": plan.get("migration_required", False),
+                        "wiki_structure_errors": plan.get("wiki_structure_errors", []),
                         "missing_last_update_warning": plan.get("missing_last_update_warning"),
                         "soft_diff_budget_warning": plan.get("soft_diff_budget_warning"),
                         "soft_diff_budget_warnings": plan.get("soft_diff_budget_warnings", []),
@@ -1349,6 +1673,38 @@ def main() -> int:
             print(message)
         return 0
 
+    if args.command == "migrate":
+        if args.apply and (
+            (root / DEFAULT_TEMP_PLAN).exists()
+            or (root / DEFAULT_TEMP_PLAN).is_symlink()
+        ):
+            print(
+                f"temporary plan must be deleted before migration: {DEFAULT_TEMP_PLAN}",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            result = (
+                apply_wiki_migration(root, DEFAULT_DOC, args.mode)
+                if args.apply
+                else build_wiki_migration(root, DEFAULT_DOC)
+            )
+        except (OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.json:
+            print(safe_json_dumps(result))
+        elif args.apply:
+            print(f"wiki migration applied: schema {SCHEMA_VERSION}")
+            print(f"moved pages: {len(result.get('moves', {}))}")
+            print(f"created indexes: {len(result.get('created_indexes', []))}")
+        else:
+            print(f"wiki migration plan: schema {result.get('from_schema_version')} -> {SCHEMA_VERSION}")
+            print(f"moved pages: {len(result.get('moves', {}))}")
+            print(f"created indexes: {len(result.get('created_indexes', []))}")
+            print("read-only; pass --apply to write")
+        return 0
+
     if args.command == "sync-index":
         try:
             result = sync_context_index(root, DEFAULT_DOC)
@@ -1361,8 +1717,8 @@ def main() -> int:
             print(f"context index unchanged: {result.get('reason')}")
         else:
             state = "updated" if result.get("changed") else "current"
-            print(f"context index {state}: {DEFAULT_DOC}")
-            print(f"supporting docs: {result.get('supporting_docs')}")
+            print(f"context indexes {state}: {DEFAULT_DOC}")
+            print(f"area indexes: {result.get('indexes')}")
         return 0
 
     if args.command == "snapshot":
@@ -1415,7 +1771,8 @@ def main() -> int:
     else:
         print(f"metadata written: {DEFAULT_METADATA}")
         print(f"source_commit: {metadata.get('source_commit_short') or metadata.get('source_commit')}")
-        print(f"docs: {len(metadata.get('docs', []))}")
+        print(f"pages: {len(metadata.get('pages', []))}")
+        print(f"indexes: {len(metadata.get('indexes', []))}")
     return 0
 
 

@@ -51,7 +51,7 @@ def _closing_bracket(text: str, start: int) -> int | None:
     return None
 
 
-def _destination(text: str, open_paren: int) -> tuple[str, int] | None:
+def _destination(text: str, open_paren: int) -> tuple[str, int, int, int] | None:
     index = open_paren + 1
     while index < len(text) and text[index] in ASCII_WHITESPACE:
         index += 1
@@ -64,12 +64,13 @@ def _destination(text: str, open_paren: int) -> tuple[str, int] | None:
         while index < len(text):
             if text[index] == ">" and not _is_escaped(text, index):
                 target = text[start:index]
-                return _destination_tail(text, index + 1, target)
+                return _destination_tail(text, index + 1, target, start, index)
             if text[index] in {"\n", "<"}:
                 return None
             index += 1
         return None
 
+    start = index
     target: list[str] = []
     nested = 0
     while index < len(text):
@@ -86,18 +87,24 @@ def _destination(text: str, open_paren: int) -> tuple[str, int] | None:
             target.append(char)
         elif char == ")":
             if nested == 0:
-                return "".join(target), index + 1
+                return "".join(target), index + 1, start, index
             nested -= 1
             target.append(char)
         elif char in ASCII_WHITESPACE and nested == 0:
-            return _destination_tail(text, index, "".join(target))
+            return _destination_tail(text, index, "".join(target), start, index)
         else:
             target.append(char)
         index += 1
     return None
 
 
-def _destination_tail(text: str, index: int, target: str) -> tuple[str, int] | None:
+def _destination_tail(
+    text: str,
+    index: int,
+    target: str,
+    target_start: int,
+    target_end: int,
+) -> tuple[str, int, int, int] | None:
     had_whitespace = False
     while index < len(text) and text[index] in ASCII_WHITESPACE:
         had_whitespace = True
@@ -105,7 +112,7 @@ def _destination_tail(text: str, index: int, target: str) -> tuple[str, int] | N
     if index >= len(text):
         return None
     if text[index] == ")":
-        return target, index + 1
+        return target, index + 1, target_start, target_end
     if not had_whitespace or text[index] not in {'"', "'", "("}:
         return None
 
@@ -128,7 +135,7 @@ def _destination_tail(text: str, index: int, target: str) -> tuple[str, int] | N
     while index < len(text) and text[index] in ASCII_WHITESPACE:
         index += 1
     if index < len(text) and text[index] == ")":
-        return target, index + 1
+        return target, index + 1, target_start, target_end
     return None
 
 
@@ -406,8 +413,8 @@ def _line_in_fence_container(
     return indent >= content_indent
 
 
-def iter_inline_link_targets(markdown: str):
-    """Yield rendered inline-link destinations, excluding images and code/comments."""
+def iter_inline_links(markdown: str):
+    """Yield destination text and source spans, excluding images and code/comments."""
     index = 0
     fence: tuple[str, int, tuple[str, int, int]] | None = None
     indented_code_cache: dict[int, bool] = {}
@@ -470,10 +477,16 @@ def iter_inline_link_targets(markdown: str):
                     continue
                 parsed = _destination(markdown, close + 1)
                 if parsed is not None:
-                    target, index = parsed
+                    target, index, target_start, target_end = parsed
                     if target and not image:
-                        yield target
+                        yield target, target_start, target_end
                     line_start = index > 0 and markdown[index - 1] == "\n"
                     continue
         line_start = markdown[index] == "\n"
         index += 1
+
+
+def iter_inline_link_targets(markdown: str):
+    """Yield rendered inline-link destinations, excluding images and code/comments."""
+    for target, _, _ in iter_inline_links(markdown):
+        yield target

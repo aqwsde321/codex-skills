@@ -7,7 +7,7 @@ from project_context_index import FRONTMATTER_RE, parse_frontmatter
 
 TEMP_PLAN = "docs/project-context/_plan.md"
 MAX_MULTI_PAGE_PRIMARY_BODY_CHARS = 4000
-MAX_SINGLE_PAGE_BODY_CHARS = 8000
+MAX_SINGLE_PAGE_BODY_CHARS = 4000
 
 
 def assess_primary_structure(root: Path, doc_rel: str, docs: list[str]) -> list[dict]:

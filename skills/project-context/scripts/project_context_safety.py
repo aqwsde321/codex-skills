@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -93,6 +94,7 @@ def context_tree_symlinks(root: Path, rel_dir: str) -> list[str]:
 
 def atomic_write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.is_file() else 0o644
     descriptor, temporary_name = tempfile.mkstemp(
         dir=path.parent,
         prefix=f".{path.name}.",
@@ -100,6 +102,7 @@ def atomic_write_text(path: Path, content: str) -> None:
     )
     temporary_path = Path(temporary_name)
     try:
+        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(content)
             handle.flush()

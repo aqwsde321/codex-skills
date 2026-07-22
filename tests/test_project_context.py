@@ -153,11 +153,110 @@ mode: multi-page
             encoding="utf-8",
         )
         supporting_body = "이 문서는 관련 구조와 변경 기준을 source 근거로 설명한다. " * 20
+        for area, title, description, read_when in (
+            ("architecture", "Architecture", "모듈 경계와 진입점", "모듈 소유권이나 시작 흐름 변경"),
+            ("workflows", "Workflows", "주요 실행 흐름과 검증 지점", "실행 흐름 변경 또는 동작 검증"),
+        ):
+            area_dir = context_dir / area
+            area_dir.mkdir()
+            (area_dir / "index.md").write_text(
+                f"""---
+title: {title}
+description: {description}
+read_when: {read_when}
+generated_by: project-context-index
+---
+
+# {title}
+
+<!-- project-context:index:start -->
+<!-- project-context:index:end -->
+""",
+                encoding="utf-8",
+            )
+        (context_dir / "architecture" / "overview.md").write_text(
+            f"""---
+type: architecture
+title: Architecture Overview
+description: 모듈 구조와 진입점 상세
+read_when: 모듈 구조의 구현 근거 확인
+---
+
+# Architecture Overview
+
+[Project context](../../project-context.md)
+
+{supporting_body}
+
+## 근거
+
+- [Entrypoint](../../../app.py)
+""",
+            encoding="utf-8",
+        )
+        (context_dir / "workflows" / "overview.md").write_text(
+            f"""---
+type: workflow
+title: Workflow Overview
+description: 주요 실행 흐름 상세
+read_when: 실행 흐름의 구현 근거 확인
+---
+
+# Workflow Overview
+
+[Project context](../../project-context.md)
+
+{supporting_body}
+
+## 근거
+
+- [Entrypoint](../../../app.py)
+""",
+            encoding="utf-8",
+        )
+        project_context_agents.ensure_file(self.root / "AGENTS.md", create_if_missing=True)
+        return context
+
+    def write_legacy_multi_context(self):
+        source_commit = self.git("rev-parse", "HEAD")
+        context = self.root / "docs" / "project-context.md"
+        context_dir = self.root / "docs" / "project-context"
+        context_dir.mkdir(parents=True, exist_ok=True)
+        context.write_text(
+            f"""---
+generated_by: project-context
+source_commit: {source_commit}
+updated_at: 2026-07-20T00:00:00Z
+mode: multi-page
+custom_home: preserve-me
+---
+
+# Project Context
+
+## 프로젝트 요약
+
+작은 Python 프로젝트다.
+
+## 작업 전 확인 지점
+
+출력 계약을 유지한다.
+
+<!-- project-context:index:start -->
+<!-- project-context:index:end -->
+
+## 근거
+
+- [README](../README.md)
+""",
+            encoding="utf-8",
+        )
+        supporting_body = "기존 문서 내용과 알 수 없는 frontmatter를 보존해야 한다. " * 20
         (context_dir / "architecture.md").write_text(
             f"""---
 title: Architecture
 description: 모듈 경계와 진입점
 read_when: 모듈 소유권이나 시작 흐름 변경
+custom_field: preserve-me
 ---
 
 # Architecture
@@ -181,7 +280,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
 # Workflows
 
-[Project context](../project-context.md)
+[Architecture](architecture.md)은 실행 흐름의 모듈 경계를 설명한다.
 
 {supporting_body}
 
@@ -226,13 +325,15 @@ read_when: 실행 흐름 변경 또는 동작 검증
             {
                 "generator",
                 "generator_version",
+                "schema_version",
                 "updated_at",
                 "run_mode",
                 "source_commit",
                 "source_commit_short",
                 "reviewed_commit",
                 "primary_doc",
-                "docs",
+                "pages",
+                "indexes",
                 "doc_sources",
                 "content_hash",
             },
@@ -797,6 +898,18 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(metadata_path.read_text(encoding="utf-8"), "old metadata\n")
         self.assertEqual(list(metadata_path.parent.glob(".metadata.json.*.tmp")), [])
 
+    def test_atomic_write_preserves_existing_mode_and_uses_readable_new_mode(self):
+        existing = self.root / "existing.md"
+        created = self.root / "created.md"
+        existing.write_text("old\n", encoding="utf-8")
+        existing.chmod(0o640)
+
+        project_context_update.atomic_write_text(existing, "new\n")
+        project_context_update.atomic_write_text(created, "created\n")
+
+        self.assertEqual(existing.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(created.stat().st_mode & 0o777, 0o644)
+
     def test_only_v18_missing_reviewed_commit_is_a_legacy_warning(self):
         self.write_context()
         self.record()
@@ -924,20 +1037,18 @@ read_when: 실행 흐름 변경 또는 동작 검증
         context_dir.mkdir(parents=True)
         docs = [
             validate_project_context.DEFAULT_DOC,
-            "docs/project-context/a.md",
-            "docs/project-context/b.md",
-            "docs/project-context/c.md",
+            "docs/project-context/domain/a.md",
+            "docs/project-context/domain/b.md",
+            "docs/project-context/domain/c.md",
         ]
-        (context_dir / "a.md").write_text(
-            "[Index](../project-context.md)\n\nA sends data to [B](b.md).\n",
+        domain_dir = context_dir / "domain"
+        domain_dir.mkdir()
+        (domain_dir / "a.md").write_text(
+            "A sends data to [B](b.md).\n",
             encoding="utf-8",
         )
-        (context_dir / "b.md").write_text(
-            "[Index](../project-context.md)\n", encoding="utf-8"
-        )
-        (context_dir / "c.md").write_text(
-            "[Index](../project-context.md)\n", encoding="utf-8"
-        )
+        (domain_dir / "b.md").write_text("B\n", encoding="utf-8")
+        (domain_dir / "c.md").write_text("C\n", encoding="utf-8")
 
         _, warnings = validate_project_context.validate_context_relationships(
             self.root, validate_project_context.DEFAULT_DOC, docs
@@ -947,7 +1058,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertEqual(len(warnings), 1)
-        self.assertIn("docs/project-context/c.md", warnings[0])
+        self.assertIn("docs/project-context/domain/c.md", warnings[0])
         self.assertEqual(two_page_warnings, [])
 
     def test_sync_index_is_deterministic_and_multi_page_validates(self):
@@ -976,12 +1087,154 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertFalse(any("testing guidance" in warning for warning in warnings))
         self.assertFalse(any("workflow/domain guidance" in warning for warning in warnings))
 
+    def test_sync_index_creates_missing_area_index(self):
+        self.write_multi_context()
+        missing_index = (
+            self.root / "docs" / "project-context" / "architecture" / "index.md"
+        )
+        missing_index.unlink()
+
+        result = project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        created = missing_index.read_text(encoding="utf-8")
+        self.record()
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertIn(
+            "docs/project-context/architecture/index.md",
+            result["created_indexes"],
+        )
+        self.assertIn("generated_by: project-context-index", created)
+        self.assertIn("[Architecture Overview](overview.md)", created)
+        self.assertEqual(code, 0, (messages, warnings))
+
+    def test_legacy_wiki_migration_is_read_only_until_applied(self):
+        self.write_legacy_multi_context()
+        before = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in sorted((self.root / "docs").rglob("*"))
+            if path.is_file()
+        }
+
+        plan = project_context_update.build_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        update_plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        after = {
+            path.relative_to(self.root).as_posix(): path.read_bytes()
+            for path in sorted((self.root / "docs").rglob("*"))
+            if path.is_file()
+        }
+
+        self.assertEqual(before, after)
+        self.assertEqual(plan["from_schema_version"], 1)
+        self.assertEqual(plan["to_schema_version"], 2)
+        self.assertEqual(update_plan["recommended_action"], "migrate-wiki-schema")
+        self.assertTrue(update_plan["migration_required"])
+        self.assertEqual(
+            plan["moves"]["docs/project-context/architecture.md"],
+            "docs/project-context/architecture/overview.md",
+        )
+        self.assertEqual(len(plan["created_indexes"]), 2)
+
+    def test_legacy_wiki_migration_preserves_content_and_rewrites_links(self):
+        self.write_legacy_multi_context()
+
+        result = project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
+        architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
+        workflows = self.root / "docs" / "project-context" / "workflows" / "overview.md"
+        home = (self.root / "docs" / "project-context.md").read_text(encoding="utf-8")
+        architecture_markdown = architecture.read_text(encoding="utf-8")
+        workflows_markdown = workflows.read_text(encoding="utf-8")
+        metadata = json.loads(
+            (self.root / project_context_update.DEFAULT_METADATA).read_text(
+                encoding="utf-8"
+            )
+        )
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertTrue(result["applied"])
+        self.assertFalse((self.root / "docs" / "project-context" / "architecture.md").exists())
+        self.assertIn("custom_field: preserve-me", architecture_markdown)
+        self.assertIn("type: concept", architecture_markdown)
+        self.assertIn("[Entrypoint](../../../app.py)", architecture_markdown)
+        self.assertIn("[Project context](../../project-context.md)", architecture_markdown)
+        self.assertIn("[Architecture](../architecture/overview.md)", workflows_markdown)
+        self.assertIn("[Architecture](project-context/architecture/index.md)", home)
+        self.assertIn("custom_home: preserve-me", home)
+        self.assertEqual(metadata["schema_version"], 2)
+        self.assertEqual(metadata["pages"], result["pages"])
+        self.assertEqual(metadata["indexes"], result["indexes"])
+        self.assertEqual(code, 0, (messages, warnings))
+
+    def test_home_only_legacy_metadata_migrates_without_creating_empty_areas(self):
+        self.write_context()
+        metadata = self.record()
+        metadata.pop("schema_version")
+        metadata["docs"] = metadata.pop("pages")
+        metadata.pop("indexes")
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        result = project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
+        persisted = json.loads(metadata_path.read_text(encoding="utf-8"))
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(result["moves"], {})
+        self.assertEqual(result["created_indexes"], [])
+        self.assertEqual(persisted["schema_version"], 2)
+        self.assertEqual(persisted["pages"], [project_context_update.DEFAULT_DOC])
+        self.assertEqual(persisted["indexes"], [])
+        self.assertFalse((self.root / "docs" / "project-context" / "index.md").exists())
+        self.assertEqual(code, 0, (messages, warnings))
+
+    def test_legacy_wiki_migration_rejects_destination_collision(self):
+        self.write_legacy_multi_context()
+        collision = self.root / "docs" / "project-context" / "architecture" / "overview.md"
+        collision.parent.mkdir()
+        collision.write_text("do not overwrite\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "migration destination already exists"):
+            project_context_update.build_wiki_migration(
+                self.root, project_context_update.DEFAULT_DOC
+            )
+
+        self.assertEqual(collision.read_text(encoding="utf-8"), "do not overwrite\n")
+
+    def test_wiki_migration_rejects_unknown_future_schema(self):
+        self.write_context()
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["schema_version"] = 3
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "unsupported.*schema_version: 3"):
+            project_context_update.build_wiki_migration(
+                self.root, project_context_update.DEFAULT_DOC
+            )
+
     def test_sync_index_requires_complete_subpage_metadata(self):
         self.write_multi_context()
-        workflow_path = self.root / "docs" / "project-context" / "workflows.md"
+        workflow_path = self.root / "docs" / "project-context" / "workflows" / "overview.md"
         workflow_path.write_text(
             workflow_path.read_text(encoding="utf-8").replace(
-                "read_when: 실행 흐름 변경 또는 동작 검증\n", ""
+                "read_when: 실행 흐름의 구현 근거 확인\n", ""
             ),
             encoding="utf-8",
         )
@@ -996,11 +1249,11 @@ read_when: 실행 흐름 변경 또는 동작 검증
         project_context_update.sync_context_index(
             self.root, project_context_update.DEFAULT_DOC
         )
-        architecture_path = self.root / "docs" / "project-context" / "architecture.md"
+        architecture_path = self.root / "docs" / "project-context" / "architecture" / "overview.md"
         architecture_path.write_text(
             architecture_path.read_text(encoding="utf-8").replace(
-                "description: 모듈 경계와 진입점",
-                "description: 모듈 경계와 애플리케이션 진입점",
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
             ),
             encoding="utf-8",
         )
@@ -1022,15 +1275,15 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.record()
         self.git("add", "AGENTS.md", "docs")
         self.git("commit", "-m", "docs: add multi-page context")
-        architecture = self.root / "docs" / "project-context" / "architecture.md"
+        architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
-                "description: 모듈 경계와 진입점",
-                "description: 모듈 경계와 애플리케이션 진입점",
+                "description: 모듈 구조와 진입점 상세",
+                "description: 모듈 경계와 애플리케이션 진입점 상세",
             ),
             encoding="utf-8",
         )
-        self.git("add", "docs/project-context/architecture.md")
+        self.git("add", "docs/project-context/architecture/overview.md")
         self.git("commit", "-m", "docs: change context index metadata")
 
         plan = project_context_update.build_plan(
@@ -1043,7 +1296,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertTrue(plan["metadata_document_state_stale"])
         self.assertTrue(plan["context_index_stale"])
         self.assertIn(
-            "docs/project-context/architecture.md",
+            "docs/project-context/architecture/overview.md",
             plan["generated_context_doc_changes"],
         )
         self.assertIn(
@@ -1250,7 +1503,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         metadata_path = self.root / project_context_update.DEFAULT_METADATA
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         metadata.pop("content_hash")
-        metadata.pop("docs")
+        metadata.pop("pages")
         metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
         code, messages, warnings = validate_project_context.validate(
@@ -1259,7 +1512,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertEqual(code, 1)
         self.assertTrue(any("missing content_hash" in message for message in messages))
-        self.assertTrue(any("docs must be a string list" in message for message in messages))
+        self.assertTrue(any("pages must be a string list" in message for message in messages))
 
     def test_planner_rejects_invalid_metadata_baseline(self):
         self.write_context()
@@ -1515,7 +1768,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 "updated_at": "invalid",
                 "run_mode": "invalid",
                 "primary_doc": "docs/wrong.md",
-                "docs": [],
+                "schema_version": 1,
+                "pages": [],
+                "indexes": ["docs/wrong/index.md"],
                 "doc_sources": {},
                 "content_hash": "invalid",
             }
@@ -1547,16 +1802,22 @@ read_when: 실행 흐름 변경 또는 동작 검증
             persisted["generator_version"], project_context_update.GENERATOR_VERSION
         )
         self.assertEqual(persisted["run_mode"], "update")
-        self.assertEqual(
-            persisted["docs"],
+        self.assertEqual(persisted["schema_version"], 2)
+        inventory = project_context_update.wiki_inventory(
             project_context_update.discover_docs(
                 self.root, project_context_update.DEFAULT_DOC
             ),
+            project_context_update.DEFAULT_DOC,
         )
+        self.assertEqual(
+            persisted["pages"],
+            inventory["pages"],
+        )
+        self.assertEqual(persisted["indexes"], inventory["indexes"])
         self.assertEqual(
             persisted["doc_sources"],
             project_context_update.collect_doc_sources(
-                self.root, persisted["docs"]
+                self.root, persisted["pages"]
             ),
         )
         self.assertEqual(persisted["content_hash"], before_hash)
