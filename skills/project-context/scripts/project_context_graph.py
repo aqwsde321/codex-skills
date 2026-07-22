@@ -26,7 +26,13 @@ LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
 NAVIGATION_LABEL_RE = re.compile(
-    r"^\s*(?:관련|참고)\s*(?:문서|링크)\s*[:：]?\s*"
+    r"^\s*(?:"
+    r"[^:：\n]{1,160}[:：]|"
+    r"(?:관련|참고)\s*(?:문서|링크)|"
+    r"related\s+(?:docs?|documents?|links?)|"
+    r"references?|see\s+also"
+    r")\s*",
+    re.IGNORECASE,
 )
 NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 

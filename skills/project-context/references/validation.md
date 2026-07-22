@@ -40,7 +40,7 @@ exit 0만 완료다. warning은 보고하지만 완료를 막지 않는다. erro
 - persistent commit hash 목록 의심
 - 홈 권장 section 누락
 
-semantic orphan warning은 링크 수를 강제하지 않는다. 링크만 있는 목록은 관계로 세지 않는다. 독립 page가 의도적이면 warning을 완료 보고에 남긴다.
+semantic orphan warning은 링크 수를 강제하지 않는다. 링크만 있거나 label 뒤에 링크만 나열한 navigation 목록은 관계로 세지 않는다. 독립 page가 의도적이면 warning을 완료 보고에 남긴다.
 
 ## 최종 확정 실패 처리
 

@@ -1796,6 +1796,59 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
                 self.assertEqual(relationships["outgoing"][architecture_rel], [])
 
+    def test_navigation_labels_are_language_independent(self):
+        self.write_multi_context()
+        architecture_rel = "docs/project-context/architecture/overview.md"
+        workflows_rel = "docs/project-context/workflows/overview.md"
+        architecture = self.root / architecture_rel
+        baseline = architecture.read_text(encoding="utf-8")
+        links = (
+            "[흐름](../workflows/overview.md), "
+            "[상세](../workflows/overview.md)"
+        )
+
+        for navigation in (
+            f"Related docs: {links}",
+            f"Related links {links}",
+            f"References {links}",
+            f"See also {links}",
+            f"Documentos relacionados: {links}",
+            f"関連文書： {links}",
+        ):
+            with self.subTest(navigation=navigation):
+                architecture.write_text(
+                    baseline.replace(
+                        "## 근거", f"## 관련 문서\n\n{navigation}\n\n## 근거"
+                    ),
+                    encoding="utf-8",
+                )
+                relationships = (
+                    project_context_update.collect_semantic_relationships(
+                        self.root, [architecture_rel, workflows_rel]
+                    )
+                )
+                self.assertEqual(relationships["outgoing"][architecture_rel], [])
+
+        for sentence in (
+            "The flow depends on [Workflow](../workflows/overview.md).",
+            "Dependency: [Workflow](../workflows/overview.md) controls recovery.",
+        ):
+            with self.subTest(sentence=sentence):
+                architecture.write_text(
+                    baseline.replace(
+                        "## 근거", f"## 관련 문서\n\n{sentence}\n\n## 근거"
+                    ),
+                    encoding="utf-8",
+                )
+                relationships = (
+                    project_context_update.collect_semantic_relationships(
+                        self.root, [architecture_rel, workflows_rel]
+                    )
+                )
+                self.assertEqual(
+                    relationships["outgoing"][architecture_rel], [workflows_rel]
+                )
+
     def test_source_affected_page_adds_semantic_one_hop_review_candidate(self):
         self.write_multi_context()
         architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"

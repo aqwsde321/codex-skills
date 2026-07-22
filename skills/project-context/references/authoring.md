@@ -28,7 +28,7 @@ init에서는 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심
 - formatting-only, wording polish, table reorder를 update 이유로 삼지 않는다.
 - source 변경이 작으면 보통 영향 page도 작게 유지한다.
 - page가 얇아도 독립 개념이면 유지할 수 있다. 근거·판단 가치가 없을 때만 합친다.
-- 의미 없는 reciprocal link나 링크 수 채우기용 문장을 만들지 않는다. 링크만 있는 `관련 문서` 목록은 semantic 관계로 인정되지 않는다.
+- 의미 없는 reciprocal link나 링크 수 채우기용 문장을 만들지 않는다. 링크만 있거나 `label: [A], [B]` 형태인 navigation 목록은 semantic 관계로 인정되지 않는다.
 
 ## 개념 문서 내용
 
