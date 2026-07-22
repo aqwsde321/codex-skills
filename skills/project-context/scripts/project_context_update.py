@@ -31,7 +31,12 @@ from project_context_index import (  # noqa: E402
     wiki_inventory,
 )
 from project_context_markdown import iter_inline_links, iter_inline_link_targets  # noqa: E402
+from project_context_graph import (  # noqa: E402
+    collect_semantic_relationships,
+    page_content_hashes,
+)
 from project_context_safety import (  # noqa: E402
+    atomic_write_bytes,
     atomic_write_text,
     canonical_commit_oid,
     context_tree_symlinks,
@@ -56,6 +61,8 @@ GENERATOR = "project-context"
 GENERATOR_VERSION = "21"
 SCHEMA_VERSION = 2
 PLAN_SENTINEL = "# Project Context Draft Plan"
+UNMAPPED_START_MARKER = "<!-- project-context:unmapped:start -->"
+UNMAPPED_END_MARKER = "<!-- project-context:unmapped:end -->"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
@@ -680,8 +687,24 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     pages = list(inventory["pages"])
     indexes = list(inventory["indexes"])
     source_map = collect_doc_sources(root, pages)
+    doc_hashes = page_content_hashes(root, pages)
     current_content_hash = docs_content_hash(root, docs)
     persisted_metadata = read_json(root / metadata_rel)
+    previous_doc_hashes = (
+        persisted_metadata.get("doc_hashes")
+        if isinstance(persisted_metadata, dict)
+        and isinstance(persisted_metadata.get("doc_hashes"), dict)
+        else None
+    )
+    changed_context_pages = (
+        sorted(
+            page
+            for page, content_hash in doc_hashes.items()
+            if previous_doc_hashes.get(page) != content_hash
+        )
+        if previous_doc_hashes is not None
+        else []
+    )
     migration_required = bool(inventory["flat_pages"]) or bool(
         persisted_metadata
         and persisted_metadata.get("schema_version") != SCHEMA_VERSION
@@ -694,6 +717,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
             "pages": pages,
             "indexes": indexes,
             "doc_sources": source_map,
+            "doc_hashes": doc_hashes,
             "content_hash": current_content_hash,
         }.items()
     )
@@ -763,6 +787,24 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         root,
         previous_commit,
     )
+    concepts = list(inventory["concepts"])
+    semantic_relationships = collect_semantic_relationships(root, concepts)
+    review_seed_pages = sorted(
+        (set(affected_docs) | set(changed_context_pages)) & set(concepts)
+    )
+    related_review_candidates = {
+        page: [
+            neighbor
+            for neighbor in semantic_relationships["neighbors"].get(page, [])
+            if neighbor not in review_seed_pages
+        ]
+        for page in review_seed_pages
+    }
+    related_review_candidates = {
+        page: neighbors
+        for page, neighbors in related_review_candidates.items()
+        if neighbors
+    }
     budget_warnings = soft_diff_budget_warnings(source_change_paths, affected_docs, doc_rel)
     if not (root / doc_rel).exists():
         recommended_action = "create-docs"
@@ -814,6 +856,10 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "wiki_structure_errors": inventory["errors"],
         "migration_required": migration_required,
         "doc_sources": source_map,
+        "doc_hashes": doc_hashes,
+        "changed_context_pages": changed_context_pages,
+        "semantic_relationships": semantic_relationships,
+        "related_review_candidates": related_review_candidates,
         "commit_evidence_label": commit_label,
         "commit_evidence": commit_output,
         "since_changes_label": since_label,
@@ -874,6 +920,136 @@ def format_structure_issues(issues: list[dict]) -> list[str]:
         f"{issue.get('message', '(no message)')}"
         for issue in issues
     ]
+
+
+def render_unmapped_resolution_block(paths: list[str]) -> list[str]:
+    entries = [
+        {"path": path, "resolution": "pending", "reason": ""}
+        for path in paths
+    ]
+    return [
+        UNMAPPED_START_MARKER,
+        "```json",
+        *safe_json_dumps(entries).splitlines(),
+        "```",
+        UNMAPPED_END_MARKER,
+    ]
+
+
+def parse_unmapped_resolutions(markdown: str) -> list[dict[str, str]]:
+    if (
+        markdown.count(UNMAPPED_START_MARKER) != 1
+        or markdown.count(UNMAPPED_END_MARKER) != 1
+    ):
+        raise ValueError("temporary plan must have one unmapped resolution block")
+    start = markdown.find(UNMAPPED_START_MARKER) + len(UNMAPPED_START_MARKER)
+    end = markdown.find(UNMAPPED_END_MARKER)
+    if start > end:
+        raise ValueError("temporary plan unmapped resolution markers are out of order")
+    block = markdown[start:end].strip()
+    if not block.startswith("```json\n") or not block.endswith("\n```"):
+        raise ValueError("temporary plan unmapped resolution block must be fenced JSON")
+    try:
+        value = json.loads(block[len("```json\n") : -len("\n```")])
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"temporary plan unmapped resolutions are invalid JSON: {error.msg}"
+        ) from error
+    if not isinstance(value, list):
+        raise ValueError("temporary plan unmapped resolutions must be a list")
+
+    resolutions: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueError("each unmapped resolution must be an object")
+        path = entry.get("path")
+        resolution = entry.get("resolution")
+        reason = entry.get("reason")
+        if not all(isinstance(item, str) for item in (path, resolution, reason)):
+            raise ValueError("unmapped resolution path, resolution, and reason must be strings")
+        if not path or path in seen_paths:
+            raise ValueError("unmapped resolution paths must be non-empty and unique")
+        if resolution not in {"pending", "documented", "backlog", "ignored"}:
+            raise ValueError(f"invalid unmapped resolution for {path}: {resolution}")
+        seen_paths.add(path)
+        resolutions.append(
+            {"path": path, "resolution": resolution, "reason": reason.strip()}
+        )
+    return resolutions
+
+
+def _backlog_source_paths(root: Path) -> list[str]:
+    primary_path = root / DEFAULT_DOC
+    if primary_path.is_symlink() or not primary_path.is_file():
+        return []
+    markdown = read_text(primary_path)
+    heading = re.search(r"(?m)^##\s+문서화\s+백로그\s*$", markdown)
+    if not heading:
+        return []
+    next_heading = re.search(r"(?m)^##\s+", markdown[heading.end() :])
+    end = heading.end() + next_heading.start() if next_heading else len(markdown)
+    section = markdown[heading.end() : end]
+    sources: list[str] = []
+    for link in iter_relative_links(section):
+        target = (primary_path.parent / link).resolve()
+        try:
+            rel = target.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if not is_generated_doc_path(rel) and rel not in sources:
+            sources.append(rel)
+    return sources
+
+
+def resolve_unmapped_changes(
+    root: Path,
+    current_plan: dict,
+    plan_markdown: str | None,
+) -> list[dict[str, str]]:
+    entries = (
+        parse_unmapped_resolutions(plan_markdown)
+        if plan_markdown is not None
+        else []
+    )
+    by_path = {entry["path"]: entry for entry in entries}
+    source_changes = set(current_plan.get("source_change_paths", []))
+    unmapped = set(current_plan.get("unmapped_changes", []))
+    missing = sorted(unmapped - set(by_path))
+    if missing:
+        raise ValueError(
+            "unmapped source changes require a plan resolution: " + ", ".join(missing)
+        )
+
+    backlog_sources = _backlog_source_paths(root)
+    resolved: list[dict[str, str]] = []
+    for path in sorted(source_changes & set(by_path)):
+        entry = dict(by_path[path])
+        resolution = entry["resolution"]
+        reason = entry["reason"]
+        if path not in unmapped:
+            if resolution == "backlog":
+                if not reason:
+                    raise ValueError(f"backlog resolution requires a reason: {path}")
+                if not any(
+                    path_affects_source(path, source) for source in backlog_sources
+                ):
+                    raise ValueError(
+                        f"backlog resolution must be linked from ## 문서화 백로그: {path}"
+                    )
+            else:
+                entry["resolution"] = "documented"
+                entry["reason"] = reason
+            resolved.append(entry)
+            continue
+
+        if resolution != "ignored" or not reason:
+            raise ValueError(
+                f"unmapped source change must be documented, linked in backlog, "
+                f"or ignored with a reason: {path}"
+            )
+        resolved.append(entry)
+    return resolved
 
 
 def format_plan(plan: dict) -> str:
@@ -955,12 +1131,21 @@ def format_plan(plan: dict) -> str:
                 lines.append(f"  - changed: {path}")
     else:
         lines.append("- (none)")
+    lines.extend(["", "## Related 1-hop Review Candidates"])
+    related_candidates = plan.get("related_review_candidates", {})
+    if related_candidates:
+        for doc, related_docs in related_candidates.items():
+            lines.append(f"- {doc}")
+            lines.extend(f"  - review: {related_doc}" for related_doc in related_docs)
+    else:
+        lines.append("- (none)")
     lines.extend(["", "## Unmapped Changes"])
     unmapped = plan.get("unmapped_changes", [])
     if unmapped:
         lines.extend(f"- {path}" for path in unmapped)
     else:
         lines.append("- (none)")
+
     lines.extend(["", "## Generated Doc Changes"])
     generated_doc_changes = plan.get("generated_doc_changes", [])
     if generated_doc_changes:
@@ -1054,6 +1239,15 @@ def format_temp_plan(plan: dict) -> str:
     else:
         lines.append("- (none)")
 
+    lines.extend(["", "## Related 1-hop Review Candidates", ""])
+    related_candidates = plan.get("related_review_candidates", {})
+    if related_candidates:
+        for doc, related_docs in related_candidates.items():
+            lines.append(f"- {doc}")
+            lines.extend(f"  - review: {related_doc}" for related_doc in related_docs)
+    else:
+        lines.append("- (none)")
+
     lines.extend(["", "## Unmapped Changes", ""])
     unmapped = plan.get("unmapped_changes", [])
     if unmapped:
@@ -1063,6 +1257,17 @@ def format_temp_plan(plan: dict) -> str:
             lines.append("  - why: no existing context doc links to this source")
     else:
         lines.append("- (none)")
+
+    lines.extend(
+        [
+            "",
+            "## Unmapped Change Resolutions",
+            "",
+            "각 항목을 documented, backlog, ignored 중 하나로 바꾸고 backlog/ignored에는 reason을 쓴다.",
+            "",
+            *render_unmapped_resolution_block(unmapped),
+        ]
+    )
 
     lines.extend(["", "## Generated Context Doc Changes", ""])
     generated_context_doc_changes = plan.get("generated_context_doc_changes", [])
@@ -1119,7 +1324,7 @@ def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
         if not read_text(plan_path).startswith(f"{PLAN_SENTINEL}\n"):
             raise ValueError("refusing to overwrite a non-project-context plan")
     plan_path.parent.mkdir(parents=True, exist_ok=True)
-    plan_path.write_text(format_temp_plan(plan), encoding="utf-8")
+    atomic_write_text(plan_path, format_temp_plan(plan))
     return plan_path
 
 
@@ -1330,6 +1535,33 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
             f"temporary plan must be deleted before migration: {DEFAULT_TEMP_PLAN}"
         )
     plan, documents = _prepare_wiki_migration(root, doc_rel)
+    previous_metadata = read_json(root / DEFAULT_METADATA) or {}
+    metadata_source_commit = previous_metadata.get("source_commit")
+    migration_source_commit = (
+        canonical_commit_oid(root, metadata_source_commit)
+        if isinstance(metadata_source_commit, str)
+        else None
+    ) or canonical_commit_oid(root, read_source_commit_from_doc(root, doc_rel) or "")
+    if migration_source_commit is None:
+        raise ValueError(
+            "migration requires a canonical source_commit in metadata or primary frontmatter"
+        )
+    metadata_reviewed_commit = previous_metadata.get("reviewed_commit")
+    previous_reviewed_commit = (
+        canonical_commit_oid(root, metadata_reviewed_commit)
+        if isinstance(metadata_reviewed_commit, str)
+        else None
+    )
+    migration_reviewed_commit = (
+        previous_reviewed_commit
+        if previous_reviewed_commit
+        and migration_source_commit
+        and git_commit_is_ancestor(
+            root, migration_source_commit, previous_reviewed_commit
+        )
+        and git_commit_is_ancestor(root, previous_reviewed_commit, "HEAD")
+        else migration_source_commit
+    )
     written_docs: list[str] = []
     for target, markdown in documents.items():
         target_path = root / target
@@ -1361,6 +1593,7 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
         run_mode,
         True,
         current_hash,
+        reviewed_commit_override=migration_reviewed_commit,
     )
     return {
         **plan,
@@ -1449,6 +1682,10 @@ def record_metadata(
     run_mode: str,
     if_changed: bool,
     before_hash: str | None,
+    *,
+    write: bool = True,
+    unmapped_resolutions: list[dict[str, str]] | None = None,
+    reviewed_commit_override: str | None = None,
 ) -> dict:
     require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
     require_expected_path("metadata path", metadata_rel, DEFAULT_METADATA)
@@ -1462,8 +1699,17 @@ def record_metadata(
     pages = list(inventory["pages"])
     indexes = list(inventory["indexes"])
     source_map = collect_doc_sources(root, pages)
+    doc_hashes = page_content_hashes(root, pages)
     content_hash = docs_content_hash(root, docs)
     previous_metadata = read_json(root / metadata_rel) or {}
+    resolutions = unmapped_resolutions or []
+    override_reviewed_commit = (
+        canonical_commit_oid(root, reviewed_commit_override)
+        if reviewed_commit_override
+        else None
+    )
+    if reviewed_commit_override and override_reviewed_commit is None:
+        raise ValueError("reviewed_commit override must be a canonical full commit ID")
     docs_unchanged = if_changed and (
         (bool(before_hash) and before_hash == content_hash)
         or previous_metadata.get("content_hash") == content_hash
@@ -1481,6 +1727,13 @@ def record_metadata(
         else None
     )
     review_source_commit = valid_document_source_commit or valid_previous_source_commit
+    if override_reviewed_commit and review_source_commit and (
+        not git_commit_is_ancestor(root, review_source_commit, override_reviewed_commit)
+        or not git_commit_is_ancestor(root, override_reviewed_commit, "HEAD")
+    ):
+        raise ValueError(
+            "reviewed_commit override must be between source_commit and HEAD"
+        )
     previous_reviewed_commit = previous_metadata.get("reviewed_commit")
     canonical_previous_reviewed_commit = (
         canonical_commit_oid(root, previous_reviewed_commit)
@@ -1526,11 +1779,17 @@ def record_metadata(
         "pages": pages,
         "indexes": indexes,
         "doc_sources": source_map,
+        "doc_hashes": doc_hashes,
+        "unmapped_resolutions": resolutions,
         "content_hash": content_hash,
     }
     previous_updated_at = previous_metadata.get("updated_at")
     metadata_needs_rewrite = (
         valid_previous_reviewed_commit is None
+        or (
+            override_reviewed_commit is not None
+            and valid_previous_reviewed_commit != override_reviewed_commit
+        )
         or source_metadata_needs_repair
         or not isinstance(previous_updated_at, str)
         or PROJECT_CONTEXT_TIMESTAMP_RE.fullmatch(previous_updated_at) is None
@@ -1542,7 +1801,7 @@ def record_metadata(
     )
 
     if docs_unchanged and not metadata_needs_rewrite and not committed_source_changes:
-        return {
+        result = {
             "skipped": True,
             "reason": "documentation unchanged and no committed source review baseline to advance",
             "metadata_path": metadata_rel,
@@ -1553,6 +1812,9 @@ def record_metadata(
             "indexes": indexes,
             "content_hash": content_hash,
         }
+        if not write:
+            result["candidate"] = previous_metadata
+        return result
 
     updated_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     if docs_unchanged:
@@ -1566,6 +1828,12 @@ def record_metadata(
     else:
         source_commit = full_head
         source_commit_short = short_head
+    target_reviewed_commit = override_reviewed_commit or full_head
+    if source_commit and target_reviewed_commit and (
+        not git_commit_is_ancestor(root, source_commit, target_reviewed_commit)
+        or not git_commit_is_ancestor(root, target_reviewed_commit, "HEAD")
+    ):
+        raise ValueError("reviewed_commit must be between source_commit and HEAD")
 
     metadata = {
         "generator": GENERATOR,
@@ -1575,21 +1843,114 @@ def record_metadata(
         "run_mode": run_mode,
         "source_commit": source_commit,
         "source_commit_short": source_commit_short,
-        "reviewed_commit": full_head,
+        "reviewed_commit": target_reviewed_commit,
         "primary_doc": doc_rel,
         "pages": pages,
         "indexes": indexes,
         "doc_sources": source_map,
+        "doc_hashes": doc_hashes,
+        "unmapped_resolutions": resolutions,
         "content_hash": content_hash,
     }
+    if not write:
+        return {
+            "skipped": False,
+            "review_only": docs_unchanged,
+            "candidate": metadata,
+        }
     metadata_path = root / metadata_rel
     atomic_write_text(metadata_path, f"{safe_json_dumps(metadata)}\n")
     return {**metadata, "review_only": True} if docs_unchanged else metadata
 
 
+def finalize_context(
+    root: Path,
+    doc_rel: str,
+    metadata_rel: str,
+    run_mode: str,
+    if_changed: bool,
+    before_hash: str | None,
+) -> dict:
+    from validate_project_context import validate
+
+    require_git_repository(root)
+    require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
+    require_expected_path("metadata path", metadata_rel, DEFAULT_METADATA)
+    require_regular_file_or_missing(root, metadata_rel, "metadata path")
+
+    sync_result = sync_context_index(root, doc_rel)
+    current_plan = build_plan(root, doc_rel, metadata_rel)
+    plan_path = root / DEFAULT_TEMP_PLAN
+    plan_bytes = snapshot_file_bytes(plan_path)
+    if (plan_path.exists() or plan_path.is_symlink()) and plan_bytes is None:
+        raise ValueError(
+            f"temporary plan must be a regular file: {DEFAULT_TEMP_PLAN}"
+        )
+    plan_markdown = (
+        plan_bytes.decode("utf-8") if plan_bytes is not None else None
+    )
+    resolutions = resolve_unmapped_changes(root, current_plan, plan_markdown)
+    preview = record_metadata(
+        root,
+        doc_rel,
+        metadata_rel,
+        run_mode,
+        if_changed,
+        before_hash,
+        write=False,
+        unmapped_resolutions=resolutions,
+    )
+    candidate = preview["candidate"]
+    code, messages, warnings = validate(
+        root,
+        doc_rel,
+        metadata_override=candidate,
+        allow_temp_plan=True,
+    )
+    if code != 0:
+        raise ValueError("candidate metadata validation failed:\n" + "\n".join(messages))
+
+    metadata_path = root / metadata_rel
+    original_metadata = snapshot_file_bytes(metadata_path)
+    plan_deleted = False
+    metadata_written = False
+    try:
+        if plan_markdown is not None:
+            delete_temp_plan(root, DEFAULT_TEMP_PLAN)
+            plan_deleted = True
+        if not preview["skipped"]:
+            atomic_write_text(metadata_path, f"{safe_json_dumps(candidate)}\n")
+            metadata_written = True
+        final_code, final_messages, final_warnings = validate(root, doc_rel)
+        if final_code != 0:
+            raise ValueError(
+                "final project-context validation failed:\n"
+                + "\n".join(final_messages)
+            )
+    except BaseException:
+        if metadata_written:
+            if original_metadata is None:
+                metadata_path.unlink(missing_ok=True)
+            else:
+                atomic_write_bytes(metadata_path, original_metadata)
+        if plan_deleted and plan_bytes is not None:
+            atomic_write_bytes(plan_path, plan_bytes)
+        raise
+
+    return {
+        "finalized": True,
+        "metadata_written": metadata_written,
+        "review_only": bool(preview.get("review_only")),
+        "sync": sync_result,
+        "unmapped_resolutions": resolutions,
+        "messages": final_messages,
+        "warnings": final_warnings,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or record Codex-native project context updates.")
-    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "migrate", "sync-index", "snapshot", "record"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; migrate plans or applies schema v2 hierarchy migration; sync-index refreshes deterministic wiki indexes; snapshot prints the current docs content hash; record writes metadata after docs update.")
+    parser.add_argument("command", choices=["plan", "write-plan", "delete-plan", "migrate", "sync-index", "snapshot", "record", "finalize"], help="plan prints update impact; write-plan creates a temporary docs plan; delete-plan removes the temporary plan safely; migrate plans or applies schema v2 hierarchy migration; sync-index refreshes deterministic wiki indexes; snapshot prints the current docs content hash; record writes metadata directly; finalize syncs indexes, validates a metadata candidate, removes the plan, and records atomically.")
     parser.add_argument("repo_root", nargs="?", default=".", help="Repository root.")
     parser.add_argument("--mode", choices=["init", "update"], default="update", help="Project context run mode stored in metadata.")
     parser.add_argument("--if-changed", action="store_true", help="Preserve the documentation source commit when docs are unchanged while recording newly reviewed commits.")
@@ -1646,6 +2007,8 @@ def main() -> int:
                         "git_summary": plan.get("git_summary"),
                         "source_change_paths": plan.get("source_change_paths", []),
                         "affected_docs": plan.get("affected_docs", {}),
+                        "changed_context_pages": plan.get("changed_context_pages", []),
+                        "related_review_candidates": plan.get("related_review_candidates", {}),
                         "unmapped_changes": plan.get("unmapped_changes", []),
                         "generated_context_doc_changes": plan.get("generated_context_doc_changes", []),
                         "renamed_paths": plan.get("renamed_paths", []),
@@ -1732,6 +2095,27 @@ def main() -> int:
             print(safe_json_dumps({"content_hash": content_hash, "docs": docs}))
         else:
             print(content_hash)
+        return 0
+
+    if args.command == "finalize":
+        try:
+            result = finalize_context(
+                root,
+                DEFAULT_DOC,
+                DEFAULT_METADATA,
+                args.mode,
+                args.if_changed,
+                args.before_hash,
+            )
+        except (OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.json:
+            print(safe_json_dumps(result))
+        else:
+            state = "written" if result["metadata_written"] else "unchanged"
+            print(f"project context finalized: metadata {state}")
+            print(f"warnings: {len(result['warnings'])}")
         return 0
 
     plan_path = root / DEFAULT_TEMP_PLAN

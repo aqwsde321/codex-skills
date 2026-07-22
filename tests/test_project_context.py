@@ -335,9 +335,50 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 "pages",
                 "indexes",
                 "doc_sources",
+                "doc_hashes",
+                "unmapped_resolutions",
                 "content_hash",
             },
         )
+        self.assertEqual(
+            metadata["doc_hashes"],
+            project_context_update.page_content_hashes(
+                self.root, metadata["pages"]
+            ),
+        )
+        self.assertEqual(metadata["unmapped_resolutions"], [])
+
+    def test_validator_rejects_stale_page_hashes(self):
+        self.write_context()
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["doc_hashes"][project_context_update.DEFAULT_DOC] = "0" * 64
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("doc_hashes do not match" in message for message in messages))
+
+    def test_validator_reports_broken_internal_link_as_error(self):
+        context = self.write_context()
+        self.record()
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "[Entrypoint](../app.py)", "[Entrypoint](../missing.py)"
+            ),
+            encoding="utf-8",
+        )
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("broken link: ../missing.py" in message for message in messages))
 
     def test_untracked_files_are_not_collapsed_to_directories(self):
         self.write_context()
@@ -1002,6 +1043,250 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("source concept -> relationship meaning -> target concept", plan)
         self.assertIn("## Deferred Coverage", plan)
         self.assertIn("area, source anchor, and reason", plan)
+        self.assertIn(project_context_update.UNMAPPED_START_MARKER, plan)
+        self.assertEqual(project_context_update.parse_unmapped_resolutions(plan), [])
+
+    def test_finalize_removes_plan_after_valid_noop(self):
+        self.write_context()
+        self.record()
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        project_context_update.write_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN, plan
+        )
+
+        result = project_context_update.finalize_context(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            before_hash,
+        )
+
+        self.assertTrue(result["finalized"])
+        self.assertFalse(result["metadata_written"])
+        self.assertFalse((self.root / project_context_update.DEFAULT_TEMP_PLAN).exists())
+
+    def test_finalize_keeps_plan_and_metadata_when_candidate_is_invalid(self):
+        context = self.write_context()
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        original_metadata = metadata_path.read_bytes()
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        plan_path = project_context_update.write_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN, plan
+        )
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "[Entrypoint](../app.py)", "[Entrypoint](../missing.py)"
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "candidate metadata validation failed"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "update",
+                True,
+                before_hash,
+            )
+
+        self.assertEqual(metadata_path.read_bytes(), original_metadata)
+        self.assertTrue(plan_path.exists())
+
+    def test_finalize_rolls_back_metadata_and_plan_after_final_validation_failure(self):
+        self.write_context()
+        self.record_and_commit_context("docs: add context")
+        (self.root / "app.py").write_text("print('changed')\n", encoding="utf-8")
+        self.git("add", "app.py")
+        self.git("commit", "-m", "change app")
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        original_metadata = metadata_path.read_bytes()
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        plan_path = project_context_update.write_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN, plan
+        )
+        original_plan = plan_path.read_bytes()
+
+        with mock.patch(
+            "validate_project_context.validate",
+            side_effect=[
+                (0, ["candidate valid"], []),
+                (1, ["forced final failure"], []),
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "forced final failure"):
+                project_context_update.finalize_context(
+                    self.root,
+                    project_context_update.DEFAULT_DOC,
+                    project_context_update.DEFAULT_METADATA,
+                    "update",
+                    True,
+                    before_hash,
+                )
+
+        self.assertEqual(metadata_path.read_bytes(), original_metadata)
+        self.assertEqual(plan_path.read_bytes(), original_plan)
+
+    def test_finalize_requires_and_records_unmapped_ignore_reason(self):
+        self.write_context()
+        self.record_and_commit_context("docs: add context")
+        (self.root / "notes.txt").write_text("not runtime input\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        self.git("commit", "-m", "add unrelated notes")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        plan_path = project_context_update.write_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN, plan
+        )
+
+        with self.assertRaisesRegex(ValueError, "must be documented.*or ignored"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "update",
+                True,
+                before_hash,
+            )
+
+        plan_markdown = plan_path.read_text(encoding="utf-8")
+        plan_markdown = plan_markdown.replace(
+            '"resolution": "pending"', '"resolution": "ignored"', 1
+        ).replace(
+            '"reason": ""',
+            '"reason": "프로젝트 실행과 무관한 테스트 메모"',
+            1,
+        )
+        plan_path.write_text(plan_markdown, encoding="utf-8")
+        result = project_context_update.finalize_context(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            before_hash,
+        )
+        metadata = json.loads(
+            (self.root / project_context_update.DEFAULT_METADATA).read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertTrue(result["metadata_written"])
+        self.assertFalse(plan_path.exists())
+        self.assertEqual(
+            metadata["unmapped_resolutions"],
+            [
+                {
+                    "path": "notes.txt",
+                    "resolution": "ignored",
+                    "reason": "프로젝트 실행과 무관한 테스트 메모",
+                }
+            ],
+        )
+
+    def test_finalize_accepts_source_linked_backlog_resolution(self):
+        context = self.write_context()
+        self.record_and_commit_context("docs: add context")
+        (self.root / "notes.txt").write_text("future documentation input\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        self.git("commit", "-m", "add future notes")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        plan_path = project_context_update.write_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN, plan
+        )
+        current_head = self.git("rev-parse", "HEAD")
+        context_markdown = context.read_text(encoding="utf-8")
+        old_source_commit = project_context_update.parse_frontmatter(
+            context_markdown
+        )["source_commit"]
+        context_markdown = context_markdown.replace(
+            f"source_commit: {old_source_commit}",
+            f"source_commit: {current_head}",
+        ).replace(
+            "## 근거",
+            "## 문서화 백로그\n\n"
+            "- 메모 문서화 보류 — 근거: [notes](../notes.txt) — 사유: 후속 기능 확정 필요\n\n"
+            "## 근거",
+        )
+        context.write_text(context_markdown, encoding="utf-8")
+        plan_markdown = plan_path.read_text(encoding="utf-8").replace(
+            '"resolution": "pending"', '"resolution": "backlog"', 1
+        ).replace(
+            '"reason": ""', '"reason": "후속 기능 확정 필요"', 1
+        )
+        plan_path.write_text(plan_markdown, encoding="utf-8")
+
+        result = project_context_update.finalize_context(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            before_hash,
+        )
+        metadata = json.loads(
+            (self.root / project_context_update.DEFAULT_METADATA).read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertTrue(result["metadata_written"])
+        self.assertEqual(
+            metadata["unmapped_resolutions"][0]["resolution"], "backlog"
+        )
 
     def test_plan_renderers_surface_required_structure_review(self):
         plan = {
@@ -1060,6 +1345,127 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(len(warnings), 1)
         self.assertIn("docs/project-context/domain/c.md", warnings[0])
         self.assertEqual(two_page_warnings, [])
+
+    def test_semantic_relationships_exclude_evidence_links(self):
+        self.write_multi_context()
+        architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
+        workflows_rel = "docs/project-context/workflows/overview.md"
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "- [Entrypoint](../../../app.py)",
+                "- [Entrypoint](../../../app.py)\n- [Workflow evidence](../workflows/overview.md)",
+            ),
+            encoding="utf-8",
+        )
+        concepts = [
+            "docs/project-context/architecture/overview.md",
+            workflows_rel,
+        ]
+
+        evidence_only = project_context_update.collect_semantic_relationships(
+            self.root, concepts
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "## 근거",
+                "[Workflow overview](../workflows/overview.md)은 구조 결정 뒤의 실행 흐름을 설명한다.\n\n## 근거",
+            ),
+            encoding="utf-8",
+        )
+        semantic = project_context_update.collect_semantic_relationships(
+            self.root, concepts
+        )
+
+        self.assertEqual(evidence_only["neighbors"][concepts[0]], [])
+        self.assertEqual(semantic["outgoing"][concepts[0]], [workflows_rel])
+        self.assertEqual(semantic["incoming"][workflows_rel], [concepts[0]])
+
+    def test_source_affected_page_adds_semantic_one_hop_review_candidate(self):
+        self.write_multi_context()
+        architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
+        workflows = self.root / "docs" / "project-context" / "workflows" / "overview.md"
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "## 근거",
+                "[Workflow overview](../workflows/overview.md)은 구조가 실행되는 순서를 설명한다.\n\n## 근거",
+            ),
+            encoding="utf-8",
+        )
+        workflows.write_text(
+            workflows.read_text(encoding="utf-8").replace(
+                "- [Entrypoint](../../../app.py)", "- [README](../../../README.md)"
+            ),
+            encoding="utf-8",
+        )
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        self.record_and_commit_context("docs: add linked wiki")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        project_context_update.record_metadata(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            before_hash,
+        )
+        (self.root / "app.py").write_text("print('changed')\n", encoding="utf-8")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        architecture_rel = "docs/project-context/architecture/overview.md"
+        workflows_rel = "docs/project-context/workflows/overview.md"
+        self.assertIn(architecture_rel, plan["affected_docs"])
+        self.assertEqual(
+            plan["related_review_candidates"],
+            {architecture_rel: [workflows_rel]},
+        )
+
+    def test_changed_page_hash_adds_incoming_semantic_review_candidate(self):
+        self.write_multi_context()
+        architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
+        workflows = self.root / "docs" / "project-context" / "workflows" / "overview.md"
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "## 근거",
+                "[Workflow overview](../workflows/overview.md)은 구조의 실행 순서를 설명한다.\n\n## 근거",
+            ),
+            encoding="utf-8",
+        )
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        self.record()
+        workflows.write_text(
+            workflows.read_text(encoding="utf-8").replace(
+                "# Workflow Overview", "# Workflow Overview\n\n검토할 규칙이 바뀌었다."
+            ),
+            encoding="utf-8",
+        )
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        architecture_rel = "docs/project-context/architecture/overview.md"
+        workflows_rel = "docs/project-context/workflows/overview.md"
+        self.assertIn(workflows_rel, plan["changed_context_pages"])
+        self.assertEqual(
+            plan["related_review_candidates"],
+            {workflows_rel: [architecture_rel]},
+        )
 
     def test_sync_index_is_deterministic_and_multi_page_validates(self):
         context = self.write_multi_context()
@@ -1177,6 +1583,25 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(metadata["pages"], result["pages"])
         self.assertEqual(metadata["indexes"], result["indexes"])
         self.assertEqual(code, 0, (messages, warnings))
+
+    def test_wiki_migration_does_not_claim_unreviewed_source_commits(self):
+        self.write_legacy_multi_context()
+        documented_commit = self.git("rev-parse", "HEAD")
+        (self.root / "app.py").write_text("print('unreviewed')\n", encoding="utf-8")
+        self.git("add", "app.py")
+        self.git("commit", "-m", "unreviewed source change")
+
+        project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
+        metadata = json.loads(
+            (self.root / project_context_update.DEFAULT_METADATA).read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(metadata["source_commit"], documented_commit)
+        self.assertEqual(metadata["reviewed_commit"], documented_commit)
 
     def test_home_only_legacy_metadata_migrates_without_creating_empty_areas(self):
         self.write_context()
@@ -1772,6 +2197,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 "pages": [],
                 "indexes": ["docs/wrong/index.md"],
                 "doc_sources": {},
+                "doc_hashes": {},
+                "unmapped_resolutions": "invalid",
                 "content_hash": "invalid",
             }
         )
@@ -1820,6 +2247,13 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 self.root, persisted["pages"]
             ),
         )
+        self.assertEqual(
+            persisted["doc_hashes"],
+            project_context_update.page_content_hashes(
+                self.root, persisted["pages"]
+            ),
+        )
+        self.assertEqual(persisted["unmapped_resolutions"], [])
         self.assertEqual(persisted["content_hash"], before_hash)
         self.assertEqual(code, 0, (messages, warnings))
 
@@ -1851,6 +2285,32 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(readme.read_text(encoding="utf-8"), original_readme)
         self.assertEqual(
             package_json.read_text(encoding="utf-8"), original_package_json
+        )
+
+    def test_finalize_cli_validates_and_reports_noop(self):
+        self.write_context()
+        self.record()
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        completed = self.run_script(
+            "project_context_update.py",
+            "finalize",
+            self.root,
+            "--mode",
+            "update",
+            "--if-changed",
+            "--before-hash",
+            before_hash,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn(
+            "project context finalized: metadata unchanged", completed.stdout
         )
 
     def test_validator_cli_rejects_primary_doc_override(self):

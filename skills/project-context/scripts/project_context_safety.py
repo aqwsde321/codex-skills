@@ -92,7 +92,7 @@ def context_tree_symlinks(root: Path, rel_dir: str) -> list[str]:
     )
 
 
-def atomic_write_text(path: Path, content: str) -> None:
+def atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = stat.S_IMODE(path.stat().st_mode) if path.is_file() else 0o644
     descriptor, temporary_name = tempfile.mkstemp(
@@ -102,8 +102,8 @@ def atomic_write_text(path: Path, content: str) -> None:
     )
     temporary_path = Path(temporary_name)
     try:
-        os.fchmod(descriptor, mode)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        with os.fdopen(descriptor, "wb") as handle:
+            os.fchmod(handle.fileno(), mode)
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
@@ -111,3 +111,7 @@ def atomic_write_text(path: Path, content: str) -> None:
     except BaseException:
         temporary_path.unlink(missing_ok=True)
         raise
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    atomic_write_bytes(path, content.encode("utf-8"))

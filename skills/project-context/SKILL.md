@@ -24,8 +24,8 @@ source code는 수정하지 않는다.
 write gate: 사용자가 프로젝트 컨텍스트 문서 생성·세팅·갱신을 명시했거나, 더 좁은 read-only 요청 없이 `$project-context`를 직접 실행한 경우에만 `init` 또는 `update`를 허용한다. 문서 부재·stale 또는 일반 구현·디버깅·리뷰 요청만으로 write하지 않는다.
 
 - `chat`: write gate를 충족하지 않았다. 문서가 없어도 만들지 않는다. primary만 먼저 읽고, multi-page이면 작업과 `read_when`이 맞는 하위 문서만 연다. 모든 하위 문서를 미리 읽지 않는다. 문서로 충분하면 광범위한 source 재탐색 없이 답한다. 정확한 최신 동작 확인이 필요하거나 context가 stale·모호·source와 충돌할 때만 관련 source를 좁게 확인한다. 충돌 시 현재 source가 우선이다. 파일과 metadata를 수정하지 않는다.
-- `init`: write gate를 충족했고 context 문서가 없다. 문서를 만들고 `record --mode init`으로 기록한다.
-- `update`: write gate를 충족했고 context 문서가 있다. 영향 문서와 계획이 요구한 문서 구조만 고치고 `record --mode update --if-changed`로 기록한다.
+- `init`: write gate를 충족했고 context 문서가 없다. 문서를 만들고 `finalize --mode init`으로 기록한다.
+- `update`: write gate를 충족했고 context 문서가 있다. 영향 문서와 계획이 요구한 문서 구조만 고치고 `finalize --mode update --if-changed`로 기록한다.
 
 ## Helper 명령
 
@@ -40,6 +40,7 @@ python3 <skill-dir>/scripts/project_context_update.py sync-index .
 python3 <skill-dir>/scripts/project_context_agents.py .
 python3 <skill-dir>/scripts/validate_project_context.py .
 python3 <skill-dir>/scripts/project_context_update.py record . --mode init|update --if-changed --before-hash <hash>
+python3 <skill-dir>/scripts/project_context_update.py finalize . --mode init|update --if-changed --before-hash <hash>
 ```
 
 `plan --json`과 `write-plan --json`은 자동화용 갱신 근거를 출력한다.
@@ -75,11 +76,11 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 - `review-generated-doc-changes`: 현재 작업트리에서 context 문서가 직접 바뀌었는지 확인
 - `review-document-structure`: 현재 mode·문서 수·primary body budget을 재검토하고 필요한 분할·병합 수행
 - `review-recent-history`: 이전 성공 metadata가 없어 최근 history를 기준점으로 검토
-- `no-op`: 문서는 수정하지 않는다. 변경 후 되돌린 commit까지 검토 기준점에 포함되도록 `record --if-changed`를 실행한 뒤 검증
+- `no-op`: 문서는 수정하지 않는다. 변경 후 되돌린 commit까지 검토 기준점에 포함되도록 `finalize --if-changed`를 실행
 
 `recommended_action`은 주된 변경 경로이고 `required_actions`는 모두 수행한다. `review-document-structure`가 포함되면 다른 action과 함께 구조도 바로잡는다.
 
-`required_actions`, `structure_issues`, `affected_docs`, `unmapped_changes`, `renamed_paths`, `git_summary`, `soft_diff_budget_warnings`를 먼저 읽는다. 커밋 메시지만 믿지 말고 후보 source를 다시 확인한다.
+`required_actions`, `structure_issues`, `affected_docs`, `related_review_candidates`, `unmapped_changes`, `renamed_paths`, `git_summary`, `soft_diff_budget_warnings`를 먼저 읽는다. 커밋 메시지만 믿지 말고 후보 source를 다시 확인한다. `related_review_candidates`는 변경 page의 의미 링크 기준 incoming/outgoing 1-hop 검토 후보이며 자동 편집 대상이 아니다.
 
 사용자가 문서 구조·분할·병합 재검토를 명시하면 plan의 `no-op`보다 요청을 우선하고 `review-document-structure`를 수행한다.
 
@@ -88,7 +89,7 @@ python3 <skill-dir>/scripts/project_context_update.py plan .
 실행 분기:
 
 - `chat`: 여기서 write 절차를 중단하고 읽기 전용으로 답한다.
-- `no-op`: `required_actions`에 `no-op` 외 action이 없고 사용자 요청·single-page 의미 구조 재검토도 구조 변경을 요구하지 않은 경우에만 `sync-index`를 포함한 문서 작성과 `_plan.md` 생성을 건너뛴다. marked agent 안내가 없거나 stale할 때만 7단계를 실행하고, 8단계에서는 `record --mode update --if-changed`와 검증만 실행한다.
+- `no-op`: `required_actions`에 `no-op` 외 action이 없으면 문서 작성과 `_plan.md` 생성을 건너뛴다. marked agent 안내가 없거나 stale할 때만 7단계를 실행하고, 8단계의 `finalize --mode update --if-changed`는 실행한다.
 - 나머지 action과 강제된 `review-document-structure`: 3~8단계를 실행한다. `create-docs`만 `--mode init`, 나머지는 `--mode update`를 사용한다.
 
 ### 3. high-signal source 조사
@@ -159,6 +160,14 @@ python3 <skill-dir>/scripts/project_context_update.py write-plan .
 
 `docs/project-context/_plan.md`에 작성할 문서, source evidence, 남은 질문만 둔다. 최종 완료 전 반드시 삭제한다.
 
+`Unmapped Change Resolutions` JSON에서 각 `pending`을 처리한다.
+
+- 문서에 source link를 추가했으면 `documented`
+- 홈 `## 문서화 백로그`에 source link와 사유를 남겼으면 `backlog`와 reason
+- 문서 범위 밖이면 `ignored`와 구체적 reason
+
+`finalize`는 미해결 unmapped change가 있으면 metadata를 쓰지 않고 중단한다.
+
 단일 문서 기본 구조:
 
 - 목적
@@ -213,19 +222,17 @@ python3 <skill-dir>/scripts/project_context_agents.py .
 - nested instruction 파일은 건드리지 않는다.
 - 주변 사용자 지침은 보존한다.
 
-### 8. metadata 기록과 검증
+### 8. 원자적 finalize와 검증
 
 ```bash
-python3 <skill-dir>/scripts/project_context_update.py sync-index .
-python3 <skill-dir>/scripts/project_context_update.py delete-plan .
-python3 <skill-dir>/scripts/project_context_update.py record . \
+python3 <skill-dir>/scripts/project_context_update.py finalize . \
   --mode <init|update> \
   --if-changed \
   --before-hash "$PROJECT_CONTEXT_BEFORE_HASH"
 python3 <skill-dir>/scripts/validate_project_context.py .
 ```
 
-true `no-op`에서는 위 `sync-index`와 `delete-plan`을 생략한다.
+`finalize`는 index 동기화, unmapped resolution 확인, candidate metadata 검증, `_plan.md` 제거, metadata 원자적 교체, 최종 검증을 수행한다. 검증 실패 시 기존 metadata 기준점을 보존하고 삭제한 plan도 복구한다. true `no-op`에도 실행해 검토 기준점과 최종 상태를 확인한다.
 
 `create-docs`는 `--mode init`, 기존 문서의 update/review/no-op은 `--mode update`를 사용한다.
 
@@ -234,7 +241,8 @@ metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기
 - `generator`, `generator_version`
 - `updated_at`, `run_mode`
 - `source_commit`, `source_commit_short`, `reviewed_commit`
-- `schema_version`, `primary_doc`, `pages`, `indexes`, `doc_sources`
+- `schema_version`, `primary_doc`, `pages`, `indexes`, `doc_sources`, `doc_hashes`
+- `unmapped_resolutions`
 - `content_hash`
 
 문서가 바뀌면 `source_commit`과 `reviewed_commit`을 현재 `HEAD`로 기록한다. committed source 변경을 검토했지만 문서 변경이 불필요하면 `source_commit`은 보존하고 `reviewed_commit`만 현재 `HEAD`로 전진시킨다. 현재 작업트리의 미커밋 변경은 commit 기준점으로 승인하지 않으므로 계속 갱신 계획에 나타날 수 있다. context 문서·metadata·marked agent 안내만 바뀐 경우에는 metadata를 갱신하지 않는다.
@@ -247,10 +255,12 @@ metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기
 - schema v2와 홈→area index→concept의 최대 2단계 구조 일치
 - concept page의 `type`, `title`, `description`, `read_when` metadata 완전
 - generated 홈/area index가 page metadata와 정확히 일치
+- page별 SHA-256 hash와 현재 내용 일치
 - 홈 body 4,000자 이하
-- 모든 source link가 repo 내부 실제 경로를 가리킴
+- 모든 내부 link가 repo 내부 실제 경로를 가리킴
 - 홈과 concept page에 `## 근거`와 source evidence 존재
 - 홈→area index→concept 링크 완전
+- stale index와 broken link는 error, semantic orphan은 warning
 - `_plan.md` 없음
 - context 문서·metadata·parent가 symlink 아님
 - host absolute path와 secret-looking 값 없음

@@ -30,6 +30,10 @@ from project_context_index import (  # noqa: E402
     wiki_inventory,
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_graph import (  # noqa: E402
+    collect_semantic_relationships,
+    page_content_hashes,
+)
 from project_context_safety import (  # noqa: E402
     canonical_commit_oid,
     context_tree_symlinks,
@@ -408,7 +412,7 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
                 evidence_source_links.append(rel)
 
     for link in broken_links:
-        errors.append(f"{doc_rel}: broken source link: {link}")
+        errors.append(f"{doc_rel}: broken link: {link}")
 
     if not is_area_index and evidence_section and not evidence_source_links:
         errors.append(f"{doc_rel}: missing source evidence links in ## 근거")
@@ -432,24 +436,32 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
     return errors, warnings
 
 
-def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[list[str], list[str]]:
+def validate_metadata(
+    root: Path,
+    docs: list[str],
+    primary_doc: str,
+    metadata_override: dict | None = None,
+) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     metadata_path = root / DEFAULT_METADATA
-    if metadata_path.is_symlink():
-        errors.append(f"update metadata must not be a symlink: {DEFAULT_METADATA}")
-        return errors, warnings
-    if not metadata_path.exists():
-        errors.append(f"missing update metadata: {DEFAULT_METADATA}")
-        return errors, warnings
-    if not metadata_path.is_file():
-        errors.append(f"update metadata is not a file: {DEFAULT_METADATA}")
-        return errors, warnings
+    if metadata_override is None:
+        if metadata_path.is_symlink():
+            errors.append(f"update metadata must not be a symlink: {DEFAULT_METADATA}")
+            return errors, warnings
+        if not metadata_path.exists():
+            errors.append(f"missing update metadata: {DEFAULT_METADATA}")
+            return errors, warnings
+        if not metadata_path.is_file():
+            errors.append(f"update metadata is not a file: {DEFAULT_METADATA}")
+            return errors, warnings
 
-    metadata, read_error = read_json(metadata_path)
-    if metadata is None:
-        errors.append(f"invalid update metadata: {DEFAULT_METADATA}: {read_error}")
-        return errors, warnings
+        metadata, read_error = read_json(metadata_path)
+        if metadata is None:
+            errors.append(f"invalid update metadata: {DEFAULT_METADATA}: {read_error}")
+            return errors, warnings
+    else:
+        metadata = metadata_override
 
     if metadata.get("generator") != "project-context":
         errors.append(f"{DEFAULT_METADATA}: generator must be project-context")
@@ -581,6 +593,51 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         if normalized_actual != normalized_expected:
             errors.append(f"{DEFAULT_METADATA}: doc_sources do not match current document source links")
 
+    doc_hashes = metadata.get("doc_hashes")
+    if not isinstance(doc_hashes, dict) or not all(
+        isinstance(page, str)
+        and isinstance(content_hash, str)
+        and re.fullmatch(r"[0-9a-f]{64}", content_hash)
+        for page, content_hash in doc_hashes.items()
+    ):
+        errors.append(
+            f"{DEFAULT_METADATA}: doc_hashes must map page paths to SHA-256 hashes"
+        )
+    elif sorted(doc_hashes) != sorted(expected_pages):
+        errors.append(f"{DEFAULT_METADATA}: doc_hashes keys must match current context pages")
+    elif doc_hashes != page_content_hashes(root, expected_pages):
+        errors.append(
+            f"{DEFAULT_METADATA}: doc_hashes do not match current context pages"
+        )
+
+    unmapped_resolutions = metadata.get("unmapped_resolutions")
+    if not isinstance(unmapped_resolutions, list):
+        errors.append(f"{DEFAULT_METADATA}: unmapped_resolutions must be a list")
+    else:
+        seen_resolution_paths: set[str] = set()
+        for entry in unmapped_resolutions:
+            if not isinstance(entry, dict):
+                errors.append(
+                    f"{DEFAULT_METADATA}: each unmapped resolution must be an object"
+                )
+                continue
+            path = entry.get("path")
+            resolution = entry.get("resolution")
+            reason = entry.get("reason")
+            if (
+                not isinstance(path, str)
+                or not path
+                or path in seen_resolution_paths
+                or resolution not in {"documented", "backlog", "ignored"}
+                or not isinstance(reason, str)
+                or (resolution in {"backlog", "ignored"} and not reason.strip())
+            ):
+                errors.append(
+                    f"{DEFAULT_METADATA}: invalid unmapped resolution entry"
+                )
+                continue
+            seen_resolution_paths.add(path)
+
     return errors, warnings
 
 
@@ -660,29 +717,15 @@ def validate_context_relationships(root: Path, doc_rel: str, docs: list[str]) ->
     warnings: list[str] = []
     inventory = wiki_inventory(docs, doc_rel, require_indexes=False)
     subdocs = list(inventory["concepts"])
-    if len(subdocs) < 3:
+    if len(subdocs) < 2:
         return errors, warnings
-
-    subdoc_set = set(subdocs)
-    related_subdocs: set[str] = set()
+    relationships = collect_semantic_relationships(root, subdocs)
     for subdoc in subdocs:
-        subdoc_path = root / subdoc
-        if subdoc_path.is_symlink() or not subdoc_path.is_file():
+        if relationships["neighbors"].get(subdoc):
             continue
-        markdown = subdoc_path.read_text(encoding="utf-8", errors="replace")
-        for link in iter_relative_links(markdown):
-            target_path = (subdoc_path.parent / link).resolve()
-            try:
-                target = target_path.relative_to(root).as_posix()
-            except ValueError:
-                continue
-            if target in subdoc_set and target != subdoc:
-                related_subdocs.update((subdoc, target))
-
-    for subdoc in sorted(subdoc_set - related_subdocs):
         warnings.append(
-            f"{subdoc}: isolated from peer context pages; add an evidence-backed relationship link, "
-            "merge it, or review whether it is intentionally standalone"
+            f"{subdoc}: semantic orphan; add an evidence-backed relationship sentence "
+            "or confirm it is intentionally standalone"
         )
     return errors, warnings
 
@@ -741,7 +784,13 @@ def is_semantically_current_agent_section(section: str) -> bool:
     )
 
 
-def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
+def validate(
+    root: Path,
+    doc_rel: str,
+    *,
+    metadata_override: dict | None = None,
+    allow_temp_plan: bool = False,
+) -> tuple[int, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     try:
@@ -762,13 +811,17 @@ def validate(root: Path, doc_rel: str) -> tuple[int, list[str], list[str]]:
         for path in context_symlinks
     )
     temp_plan_path = root / TEMP_PLAN
-    if temp_plan_path.exists() or temp_plan_path.is_symlink():
+    if not allow_temp_plan and (
+        temp_plan_path.exists() or temp_plan_path.is_symlink()
+    ):
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
     docs = discover_docs(root, doc_rel)
     docs = [doc for doc in docs if doc != TEMP_PLAN]
     inventory = wiki_inventory(docs, doc_rel)
     errors.extend(inventory["errors"])
-    metadata_errors, metadata_warnings = validate_metadata(root, docs, doc_rel)
+    metadata_errors, metadata_warnings = validate_metadata(
+        root, docs, doc_rel, metadata_override
+    )
     errors.extend(metadata_errors)
     warnings.extend(metadata_warnings)
     for doc in docs:
