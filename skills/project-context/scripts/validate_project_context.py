@@ -39,6 +39,11 @@ from project_context_agents import (  # noqa: E402
     is_semantically_current_section as is_semantically_current_agent_section,
     marked_section as marked_agent_section,
 )
+from project_context_contract import (  # noqa: E402
+    GENERATOR,
+    GENERATOR_VERSION,
+    SCHEMA_VERSION,
+)
 from project_context_markdown import (  # noqa: E402
     is_external_link_target as is_external_target,
     iter_clean_link_targets as iter_markdown_links,
@@ -67,8 +72,6 @@ DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
-CURRENT_GENERATOR_VERSION = "21"
-CURRENT_SCHEMA_VERSION = 2
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
 MIN_SUBPAGE_BODY_CHARS = 500
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
@@ -421,19 +424,19 @@ def validate_metadata(
     else:
         metadata = metadata_override
 
-    if metadata.get("generator") != "project-context":
-        errors.append(f"{DEFAULT_METADATA}: generator must be project-context")
-    if metadata.get("schema_version") != CURRENT_SCHEMA_VERSION:
+    if metadata.get("generator") != GENERATOR:
+        errors.append(f"{DEFAULT_METADATA}: generator must be {GENERATOR}")
+    if metadata.get("schema_version") != SCHEMA_VERSION:
         errors.append(
-            f"{DEFAULT_METADATA}: schema_version must be {CURRENT_SCHEMA_VERSION}; "
+            f"{DEFAULT_METADATA}: schema_version must be {SCHEMA_VERSION}; "
             "run project_context_update.py migrate --apply"
         )
     generator_version = metadata.get("generator_version")
     if not isinstance(generator_version, str) or not generator_version.strip():
         errors.append(f"{DEFAULT_METADATA}: missing generator_version")
-    elif generator_version != CURRENT_GENERATOR_VERSION:
+    elif generator_version != GENERATOR_VERSION:
         errors.append(
-            f"{DEFAULT_METADATA}: generator_version must be {CURRENT_GENERATOR_VERSION}"
+            f"{DEFAULT_METADATA}: generator_version must be {GENERATOR_VERSION}"
         )
     updated_at = metadata.get("updated_at")
     if not is_utc_millisecond_timestamp(updated_at):

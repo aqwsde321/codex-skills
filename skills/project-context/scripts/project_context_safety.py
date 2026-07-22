@@ -5,7 +5,7 @@ import re
 import stat
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -25,6 +25,25 @@ def is_utc_millisecond_timestamp(value: object) -> bool:
     except ValueError:
         return False
     return True
+
+
+def normalize_utc_millisecond_timestamp(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = value.strip()
+    if candidate.endswith("Z"):
+        candidate = f"{candidate[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return (
+        parsed.astimezone(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def run_git_bytes(root: Path, args: list[str]) -> bytes:

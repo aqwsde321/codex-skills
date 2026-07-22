@@ -41,6 +41,11 @@ from project_context_agents import (  # noqa: E402
     END_MARKER as AGENT_END_MARKER,
     START_MARKER as AGENT_START_MARKER,
 )
+from project_context_contract import (  # noqa: E402
+    GENERATOR,
+    GENERATOR_VERSION,
+    SCHEMA_VERSION,
+)
 from project_context_markdown import (  # noqa: E402
     is_external_link_target as is_external_target,
     iter_inline_links,
@@ -56,6 +61,7 @@ from project_context_safety import (  # noqa: E402
     canonical_commit_oid,
     context_tree_symlinks,
     is_utc_millisecond_timestamp,
+    normalize_utc_millisecond_timestamp,
     require_expected_path,
     require_git_repository,
     require_regular_file_or_missing,
@@ -73,9 +79,6 @@ DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
-GENERATOR = "project-context"
-GENERATOR_VERSION = "21"
-SCHEMA_VERSION = 2
 PLAN_SENTINEL = "# 프로젝트 컨텍스트 임시 계획"
 LEGACY_PLAN_SENTINELS = ("# Project Context Draft Plan",)
 UNMAPPED_START_MARKER = "<!-- project-context:unmapped:start -->"
@@ -1474,6 +1477,43 @@ def _validate_migration_fields(
     return errors
 
 
+def _resolve_migration_commit_oid(root: Path, value: object) -> str | None:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"[0-9a-fA-F]{7,64}", value.strip()) is None
+    ):
+        return None
+    return resolve_commit_oid(root, value.strip())
+
+
+def _migration_source_commit(
+    root: Path,
+    doc_rel: str,
+    metadata: dict,
+) -> str:
+    for candidate in (
+        metadata.get("source_commit"),
+        read_source_commit_from_doc(root, doc_rel),
+    ):
+        resolved = _resolve_migration_commit_oid(root, candidate)
+        if resolved:
+            return resolved
+    raise ValueError(
+        "migration requires a resolvable full or abbreviated source_commit "
+        "in metadata or primary frontmatter"
+    )
+
+
+def _migration_updated_at(root: Path, doc_rel: str) -> str:
+    fields = parse_frontmatter(read_text(root / doc_rel))
+    normalized = normalize_utc_millisecond_timestamp(fields.get("updated_at"))
+    if normalized is None:
+        raise ValueError(
+            f"{doc_rel}: migration requires an ISO-8601 updated_at with timezone"
+        )
+    return normalized
+
+
 def _prepare_wiki_migration(root: Path, doc_rel: str) -> tuple[dict, dict[str, str]]:
     require_git_repository(root)
     require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
@@ -1485,6 +1525,8 @@ def _prepare_wiki_migration(root: Path, doc_rel: str) -> tuple[dict, dict[str, s
             f"invalid migration metadata; repair or remove {DEFAULT_METADATA}"
         )
     metadata = metadata or {}
+    migration_source_commit = _migration_source_commit(root, doc_rel, metadata)
+    migration_updated_at = _migration_updated_at(root, doc_rel)
     source_schema_version = metadata.get("schema_version", 1)
     if source_schema_version not in {1, SCHEMA_VERSION}:
         raise ValueError(
@@ -1532,6 +1574,12 @@ def _prepare_wiki_migration(root: Path, doc_rel: str) -> tuple[dict, dict[str, s
         if new_doc in future_concepts and not parse_frontmatter(markdown).get("type"):
             markdown = set_frontmatter_field(markdown, "type", "concept")
         if new_doc == doc_rel:
+            markdown = set_frontmatter_field(
+                markdown, "source_commit", migration_source_commit
+            )
+            markdown = set_frontmatter_field(
+                markdown, "updated_at", migration_updated_at
+            )
             markdown = set_frontmatter_field(
                 markdown, "mode", "multi-page" if future_concepts else "single-page"
             )
@@ -1581,21 +1629,10 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
     require_clean_source_worktree(root, "apply project context migration")
     plan, documents = _prepare_wiki_migration(root, doc_rel)
     previous_metadata = read_json(root / DEFAULT_METADATA) or {}
-    metadata_source_commit = previous_metadata.get("source_commit")
-    migration_source_commit = (
-        canonical_commit_oid(root, metadata_source_commit)
-        if isinstance(metadata_source_commit, str)
-        else None
-    ) or canonical_commit_oid(root, read_source_commit_from_doc(root, doc_rel) or "")
-    if migration_source_commit is None:
-        raise ValueError(
-            "migration requires a canonical source_commit in metadata or primary frontmatter"
-        )
+    migration_source_commit = parse_frontmatter(documents[doc_rel])["source_commit"]
     metadata_reviewed_commit = previous_metadata.get("reviewed_commit")
-    previous_reviewed_commit = (
-        canonical_commit_oid(root, metadata_reviewed_commit)
-        if isinstance(metadata_reviewed_commit, str)
-        else None
+    previous_reviewed_commit = _resolve_migration_commit_oid(
+        root, metadata_reviewed_commit
     )
     migration_reviewed_commit = (
         previous_reviewed_commit

@@ -350,6 +350,26 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.assertEqual(metadata["unmapped_resolutions"], [])
 
+    def test_writer_and_validator_share_version_contract(self):
+        contract = load_script("project_context_contract")
+
+        self.assertEqual(
+            project_context_update.GENERATOR_VERSION,
+            contract.GENERATOR_VERSION,
+        )
+        self.assertEqual(
+            validate_project_context.GENERATOR_VERSION,
+            contract.GENERATOR_VERSION,
+        )
+        self.assertEqual(
+            project_context_update.SCHEMA_VERSION,
+            contract.SCHEMA_VERSION,
+        )
+        self.assertEqual(
+            validate_project_context.SCHEMA_VERSION,
+            contract.SCHEMA_VERSION,
+        )
+
     def test_validator_rejects_stale_page_hashes(self):
         self.write_context()
         self.record()
@@ -1885,6 +1905,34 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(metadata["schema_version"], 2)
         self.assertEqual(metadata["pages"], result["pages"])
         self.assertEqual(metadata["indexes"], result["indexes"])
+        self.assertEqual(code, 0, (messages, warnings))
+
+    def test_legacy_wiki_migration_normalizes_v1_primary_metadata(self):
+        context = self.write_legacy_multi_context()
+        full_head = self.git("rev-parse", "HEAD")
+        context.write_text(
+            context.read_text(encoding="utf-8")
+            .replace(f"source_commit: {full_head}", f"source_commit: {full_head[:7]}")
+            .replace(
+                "updated_at: 2026-07-20T00:00:00.000Z",
+                "updated_at: 2026-07-20T09:00:00+09:00",
+            ),
+            encoding="utf-8",
+        )
+
+        result = project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
+        fields = project_context_update.parse_frontmatter(
+            context.read_text(encoding="utf-8")
+        )
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(fields["source_commit"], full_head)
+        self.assertEqual(fields["updated_at"], "2026-07-20T00:00:00.000Z")
         self.assertEqual(code, 0, (messages, warnings))
 
     def test_wiki_migration_does_not_claim_unreviewed_source_commits(self):
