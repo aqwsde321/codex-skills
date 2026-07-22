@@ -29,7 +29,7 @@ init에서는 최근 `git log`, 선별적 `git show`와 `git blame`으로 핵심
 - source 변경이 작으면 보통 영향 page도 작게 유지한다.
 - page가 얇아도 독립 개념이면 유지할 수 있다. 근거·판단 가치가 없을 때만 합친다.
 - 의미 없는 reciprocal link나 링크 수 채우기용 문장을 만들지 않는다. 링크만 있거나 `label: [A], [B]` 형태인 navigation 목록은 semantic 관계로 인정되지 않는다. `Depends on: [A]`, `Calls: [B]`처럼 관계 동작을 명시한 canonical label은 예외다.
-- navigation 링크 사이에 접속사와 구분자만 있어도 semantic 관계로 인정되지 않는다.
+- noncanonical `label:`로 시작해 마지막 링크에서 끝나는 행은 링크 사이 단어와 언어에 무관하게 navigation으로 판정한다. 관계를 표현하려면 canonical label을 쓰거나, label 없는 일반 문장으로 쓰거나, 마지막 링크 뒤에 설명을 이어 쓴다.
 - canonical relation label을 `**...**` 또는 `__...__`로 강조해도 semantic 판정은 같다.
 
 ## 개념 문서 내용

@@ -45,12 +45,6 @@ NAVIGATION_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 GENERIC_LINK_LABEL_RE = re.compile(r"^\s*[^:：\n]{1,160}[:：]\s*")
-# ponytail: connector-only navigation uses the languages supported above;
-# extend both vocabularies together when another navigation language appears.
-NAVIGATION_CONNECTOR_RE = re.compile(
-    r"(?<!\w)(?:and|or|y|o|및|또는|그리고|혹은|와|과|と|または)(?!\w)",
-    re.IGNORECASE,
-)
 NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
@@ -75,6 +69,30 @@ def semantic_markdown(markdown: str) -> str:
     return body
 
 
+def _plain_relationship_fragment(
+    fragment: str,
+    *,
+    strip_list_prefix: bool = False,
+) -> str:
+    if strip_list_prefix:
+        fragment = LIST_PREFIX_RE.sub("", fragment, count=1)
+    fragment = HTML_COMMENT_RE.sub("", fragment)
+    fragment = unescape(fragment)
+    return HTML_TAG_RE.sub("", fragment)
+
+
+def _is_labeled_link_list(prefix: str, suffix: str) -> bool:
+    if NON_WORD_RE.sub("", suffix):
+        return False
+    for label_re in (NAVIGATION_LABEL_RE, GENERIC_LINK_LABEL_RE):
+        match = label_re.match(prefix)
+        if match and not NON_WORD_RE.sub("", prefix[match.end() :]):
+            return True
+    # ponytail: noncanonical labeled lines ending at their last link are
+    # navigation; revisit if label-only semantic relations become a requirement.
+    return False
+
+
 def _relationship_prose_lines(
     markdown: str,
     links: list[tuple[str, int, int, int, int]],
@@ -92,24 +110,33 @@ def _relationship_prose_lines(
 
     prose_lines: set[int] = set()
     for line_start, (line_end, spans) in spans_by_line.items():
-        remaining = markdown[line_start:line_end]
-        for link_start, link_end in sorted(spans, reverse=True):
-            start = link_start - line_start
-            end = link_end - line_start
+        line = markdown[line_start:line_end]
+        local_spans = sorted(
+            (link_start - line_start, link_end - line_start)
+            for link_start, link_end in spans
+        )
+        remaining = line
+        for start, end in reversed(local_spans):
             remaining = remaining[:start] + remaining[end:]
-        remaining = LIST_PREFIX_RE.sub("", remaining, count=1)
-        remaining = HTML_COMMENT_RE.sub("", remaining)
-        remaining = unescape(remaining)
-        remaining = HTML_TAG_RE.sub("", remaining)
+        remaining = _plain_relationship_fragment(
+            remaining,
+            strip_list_prefix=True,
+        )
         semantic_label = STRONG_EMPHASIS_LABEL_RE.sub(
             r"\g<label>\g<suffix>", remaining
         )
         if SEMANTIC_RELATION_LABEL_PREFIX_RE.match(semantic_label):
             prose_lines.add(line_start)
             continue
+        prefix = _plain_relationship_fragment(
+            line[: local_spans[0][0]],
+            strip_list_prefix=True,
+        )
+        suffix = _plain_relationship_fragment(line[local_spans[-1][1] :])
+        if _is_labeled_link_list(prefix, suffix):
+            continue
         remaining = NAVIGATION_LABEL_RE.sub("", remaining, count=1)
         remaining = GENERIC_LINK_LABEL_RE.sub("", remaining, count=1)
-        remaining = NAVIGATION_CONNECTOR_RE.sub("", remaining)
         if NON_WORD_RE.sub("", remaining):
             prose_lines.add(line_start)
     # ponytail: only same-line prose is recognized, revisit when relationships

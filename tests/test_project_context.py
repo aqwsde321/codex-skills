@@ -1838,6 +1838,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
             f"Related pages: {links}",
             "Related pages: [흐름](../workflows/overview.md) and "
             "[상세](../workflows/overview.md)",
+            "Related pages: [흐름](../workflows/overview.md) plus "
+            "[상세](../workflows/overview.md)",
+            "Pages connexes: [흐름](../workflows/overview.md) et "
+            "[상세](../workflows/overview.md)",
             f"Links: {links}",
             "Links: [흐름](../workflows/overview.md) or "
             "[상세](../workflows/overview.md)",
@@ -1847,8 +1851,12 @@ read_when: 실행 흐름 변경 또는 동작 검증
             f"Documentos relacionados: {links}",
             "Documentos relacionados: [흐름](../workflows/overview.md) y "
             "[상세](../workflows/overview.md)",
+            "Documentos relacionados: [흐름](../workflows/overview.md) e "
+            "[상세](../workflows/overview.md)",
             f"関連文書： {links}",
             "関連文書： [흐름](../workflows/overview.md) と "
+            "[상세](../workflows/overview.md)",
+            "関連文書： [흐름](../workflows/overview.md) および "
             "[상세](../workflows/overview.md)",
             "관련 문서: [흐름](../workflows/overview.md) 및 "
             "[상세](../workflows/overview.md)",
@@ -1872,6 +1880,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
             "Dependency: [Workflow](../workflows/overview.md) controls recovery.",
             "Related pages: [Workflow](../workflows/overview.md) and "
             "the fallback handles recovery.",
+            "Pages connexes: [Workflow](../workflows/overview.md) et "
+            "[Details](../workflows/overview.md) remain synchronized.",
+            "The service calls [Workflow](../workflows/overview.md) before "
+            "[Fallback](../workflows/overview.md)",
         ):
             with self.subTest(sentence=sentence):
                 architecture.write_text(
@@ -1903,6 +1915,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
             "Calls: [Payment service](../workflows/overview.md)",
             "**Depends on:** [Workflow](../workflows/overview.md)",
             "**Depends on:** [Workflow](../workflows/overview.md) and "
+            "[Fallback](../workflows/overview.md)",
+            "**Depends on:** [Workflow](../workflows/overview.md) plus "
             "[Fallback](../workflows/overview.md)",
             "__Calls:__ [Payment service](../workflows/overview.md)",
             "**Depends on**: [Workflow](../workflows/overview.md)",
