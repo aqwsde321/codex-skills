@@ -25,8 +25,12 @@ GENERATED_INDEX_RE = re.compile(
 LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
-# ponytail: keep navigation labels explicit so semantic verbs such as
-# "Depends on:" remain relationships; add labels only from observed wiki usage.
+# ponytail: label-only semantic relations need an explicit vocabulary; extend
+# this list when another canonical relation label is documented.
+SEMANTIC_RELATION_LABEL_RE = re.compile(
+    r"^\s*(?:depends?\s+on|calls?)\s*[:：][\W_]*$",
+    re.IGNORECASE,
+)
 NAVIGATION_LABEL_RE = re.compile(
     r"^\s*(?:"
     r"(?:관련|참고)\s*(?:문서|링크)|"
@@ -37,6 +41,7 @@ NAVIGATION_LABEL_RE = re.compile(
     r")\s*[:：]?\s*",
     re.IGNORECASE,
 )
+GENERIC_LINK_LABEL_RE = re.compile(r"^\s*[^:：\n]{1,160}[:：]\s*")
 NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
@@ -87,7 +92,11 @@ def _relationship_prose_lines(
         remaining = HTML_COMMENT_RE.sub("", remaining)
         remaining = unescape(remaining)
         remaining = HTML_TAG_RE.sub("", remaining)
+        if SEMANTIC_RELATION_LABEL_RE.fullmatch(remaining):
+            prose_lines.add(line_start)
+            continue
         remaining = NAVIGATION_LABEL_RE.sub("", remaining, count=1)
+        remaining = GENERIC_LINK_LABEL_RE.sub("", remaining, count=1)
         if NON_WORD_RE.sub("", remaining):
             prose_lines.add(line_start)
     # ponytail: only same-line prose is recognized, revisit when relationships

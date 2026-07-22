@@ -1835,6 +1835,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
         for navigation in (
             f"Related docs: {links}",
             f"Related links {links}",
+            f"Related pages: {links}",
+            f"Links: {links}",
+            "Links: [흐름](../workflows/overview.md)",
             f"References {links}",
             f"See also {links}",
             f"Documentos relacionados: {links}",
@@ -1883,6 +1886,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         for sentence in (
             "Depends on: [Workflow](../workflows/overview.md)",
+            "Depends on: [Workflow](../workflows/overview.md), "
+            "[Fallback](../workflows/overview.md)",
             "Calls: [Payment service](../workflows/overview.md)",
         ):
             with self.subTest(sentence=sentence):
