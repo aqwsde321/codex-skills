@@ -1727,6 +1727,36 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(semantic["outgoing"][concepts[0]], [workflows_rel])
         self.assertEqual(semantic["incoming"][workflows_rel], [concepts[0]])
 
+    def test_navigation_only_links_do_not_create_semantic_relationships(self):
+        self.write_multi_context()
+        architecture_rel = "docs/project-context/architecture/overview.md"
+        workflows_rel = "docs/project-context/workflows/overview.md"
+        architecture = self.root / architecture_rel
+        baseline = architecture.read_text(encoding="utf-8")
+
+        for navigation in (
+            "관련 문서: [흐름](../workflows/overview.md), "
+            "[상세](../workflows/overview.md)",
+            "[흐름](../workflows/overview.md)&nbsp;"
+            "[상세](../workflows/overview.md)",
+            "[흐름](../workflows/overview.md)<!-- nav -->"
+            "[상세](../workflows/overview.md)",
+        ):
+            with self.subTest(navigation=navigation):
+                architecture.write_text(
+                    baseline.replace(
+                        "## 근거", f"## 관련 문서\n\n{navigation}\n\n## 근거"
+                    ),
+                    encoding="utf-8",
+                )
+                relationships = (
+                    project_context_update.collect_semantic_relationships(
+                        self.root, [architecture_rel, workflows_rel]
+                    )
+                )
+
+                self.assertEqual(relationships["outgoing"][architecture_rel], [])
+
     def test_source_affected_page_adds_semantic_one_hop_review_candidate(self):
         self.write_multi_context()
         architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"

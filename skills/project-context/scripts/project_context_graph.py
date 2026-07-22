@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from html import unescape
 from pathlib import Path
 
 from project_context_index import (
@@ -22,7 +23,11 @@ GENERATED_INDEX_RE = re.compile(
     re.DOTALL,
 )
 LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
+NAVIGATION_LABEL_RE = re.compile(
+    r"^\s*(?:관련|참고)\s*(?:문서|링크)\s*[:：]?\s*"
+)
 NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
@@ -70,7 +75,10 @@ def _relationship_prose_lines(
             end = link_end - line_start
             remaining = remaining[:start] + remaining[end:]
         remaining = LIST_PREFIX_RE.sub("", remaining, count=1)
+        remaining = HTML_COMMENT_RE.sub("", remaining)
+        remaining = unescape(remaining)
         remaining = HTML_TAG_RE.sub("", remaining)
+        remaining = NAVIGATION_LABEL_RE.sub("", remaining, count=1)
         if NON_WORD_RE.sub("", remaining):
             prose_lines.add(line_start)
     # ponytail: only same-line prose is recognized, revisit when relationships
