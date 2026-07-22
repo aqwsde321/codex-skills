@@ -1644,39 +1644,44 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
         and git_commit_is_ancestor(root, previous_reviewed_commit, "HEAD")
         else migration_source_commit
     )
-    written_docs: list[str] = []
-    for target, markdown in documents.items():
-        target_path = root / target
-        parent_symlink = symlink_parent(root, target)
-        if parent_symlink:
-            raise ValueError(
-                f"migration destination parent must not be a symlink: {parent_symlink}"
-            )
-        if (
-            target_path.is_file()
-            and not target_path.is_symlink()
-            and read_text(target_path) == markdown
-        ):
-            continue
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(target_path, markdown)
-        written_docs.append(target)
-    for source, target in plan["moves"].items():
-        if source != target:
-            (root / source).unlink()
-
-    sync_result = sync_context_index(root, doc_rel)
-    docs = discover_docs(root, doc_rel)
-    current_hash = docs_content_hash(root, docs)
-    metadata = record_metadata(
-        root,
-        doc_rel,
-        DEFAULT_METADATA,
-        run_mode,
-        True,
-        current_hash,
-        reviewed_commit_override=migration_reviewed_commit,
+    migration_paths = sorted(
+        set(documents) | set(plan["moves"]) | {DEFAULT_METADATA}
     )
+    originals, created_parent_dirs = _snapshot_migration_state(
+        root, migration_paths
+    )
+    written_docs: list[str] = []
+    try:
+        for target, markdown in documents.items():
+            target_path = root / target
+            if (
+                target_path.is_file()
+                and not target_path.is_symlink()
+                and read_text(target_path) == markdown
+            ):
+                continue
+            atomic_write_text(target_path, markdown)
+            written_docs.append(target)
+        for source, target in plan["moves"].items():
+            if source != target:
+                (root / source).unlink()
+
+        sync_result = sync_context_index(root, doc_rel)
+        docs = discover_docs(root, doc_rel)
+        current_hash = docs_content_hash(root, docs)
+        metadata = record_metadata(
+            root,
+            doc_rel,
+            DEFAULT_METADATA,
+            run_mode,
+            True,
+            current_hash,
+            reviewed_commit_override=migration_reviewed_commit,
+        )
+    except BaseException:
+        _restore_context_writes(root, originals, "migration path")
+        _remove_created_context_directories(root, created_parent_dirs)
+        raise
     return {
         **plan,
         "applied": True,
@@ -1782,15 +1787,48 @@ def _prepare_context_index_sync(
 def _restore_context_writes(
     root: Path,
     originals: dict[str, bytes | None],
+    label: str = "context index path",
 ) -> None:
     for doc in sorted(originals, reverse=True):
         path = root / doc
         original = originals[doc]
-        require_regular_file_or_missing(root, doc, "context index path")
+        require_regular_file_or_missing(root, doc, label)
         if original is None:
             path.unlink(missing_ok=True)
         else:
             atomic_write_bytes(path, original)
+
+
+def _snapshot_migration_state(
+    root: Path,
+    paths: list[str],
+) -> tuple[dict[str, bytes | None], list[str]]:
+    originals: dict[str, bytes | None] = {}
+    created_parent_dirs: set[str] = set()
+    for rel_path in paths:
+        if not is_generated_doc_path(rel_path):
+            raise ValueError(f"migration path is outside managed docs: {rel_path}")
+        require_regular_file_or_missing(root, rel_path, "migration path")
+        originals[rel_path] = snapshot_file_bytes(root / rel_path)
+        for parent in Path(rel_path).parents:
+            parent_rel = parent.as_posix()
+            if not parent_rel.startswith(f"{DEFAULT_DOC_DIR}/"):
+                continue
+            parent_path = root / parent
+            if not parent_path.exists() and not parent_path.is_symlink():
+                created_parent_dirs.add(parent_rel)
+    return originals, sorted(created_parent_dirs)
+
+
+def _remove_created_context_directories(root: Path, directories: list[str]) -> None:
+    for directory in sorted(
+        directories,
+        key=lambda item: (len(Path(item).parts), item),
+        reverse=True,
+    ):
+        path = root / directory
+        if path.exists():
+            path.rmdir()
 
 
 def _apply_context_writes(

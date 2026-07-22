@@ -310,6 +310,15 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.git("add", "AGENTS.md", "docs")
         self.git("commit", "-m", message)
 
+    def snapshot_docs_tree(self):
+        docs = self.root / "docs"
+        return {
+            path.relative_to(self.root).as_posix(): (
+                "directory" if path.is_dir() else path.read_bytes()
+            )
+            for path in sorted(docs.rglob("*"))
+        }
+
     def test_init_record_and_validate(self):
         self.write_context()
 
@@ -1872,6 +1881,55 @@ read_when: 실행 흐름 변경 또는 동작 검증
             if path.is_file()
         }
         self.assertEqual(after, before)
+
+    def test_wiki_migration_rolls_back_partial_destination_write(self):
+        self.write_legacy_multi_context()
+        before = self.snapshot_docs_tree()
+        failure_target = (
+            self.root / "docs/project-context/workflows/overview.md"
+        )
+        atomic_write_text = project_context_update.atomic_write_text
+
+        def fail_workflow_write(path, markdown):
+            if path == failure_target:
+                raise OSError("forced migration write failure")
+            atomic_write_text(path, markdown)
+
+        with mock.patch.object(
+            project_context_update,
+            "atomic_write_text",
+            side_effect=fail_workflow_write,
+        ):
+            with self.assertRaisesRegex(OSError, "forced migration write failure"):
+                project_context_update.apply_wiki_migration(
+                    self.root, project_context_update.DEFAULT_DOC, "update"
+                )
+
+        self.assertEqual(self.snapshot_docs_tree(), before)
+        result = project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
+        self.assertTrue(result["applied"])
+
+    def test_wiki_migration_rolls_back_after_metadata_failure(self):
+        self.write_legacy_multi_context()
+        before = self.snapshot_docs_tree()
+
+        with mock.patch.object(
+            project_context_update,
+            "record_metadata",
+            side_effect=OSError("forced metadata failure"),
+        ):
+            with self.assertRaisesRegex(OSError, "forced metadata failure"):
+                project_context_update.apply_wiki_migration(
+                    self.root, project_context_update.DEFAULT_DOC, "update"
+                )
+
+        self.assertEqual(self.snapshot_docs_tree(), before)
+        result = project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
+        self.assertTrue(result["applied"])
 
     def test_legacy_wiki_migration_preserves_content_and_rewrites_links(self):
         self.write_legacy_multi_context()
