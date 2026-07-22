@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from project_context_safety import (  # noqa: E402
     atomic_write_text,
     require_git_repository,
+    require_paths_not_ignored,
     require_regular_file_or_missing,
 )
 
@@ -113,6 +114,16 @@ def ensure_agent_files(root: Path) -> list[dict]:
     require_regular_file_or_missing(root, "AGENTS.md", "AGENTS.md")
     require_regular_file_or_missing(root, "CLAUDE.md", "CLAUDE.md")
     create_agents = not agents_path.exists() and not claude_path.exists()
+    managed_paths = [
+        path
+        for path in ("AGENTS.md", "CLAUDE.md")
+        if (root / path).exists()
+    ]
+    require_paths_not_ignored(
+        root,
+        managed_paths or ["AGENTS.md"],
+        "agent instruction paths",
+    )
     results = []
     status, changed = ensure_file(agents_path, create_if_missing=create_agents)
     results.append({"path": "AGENTS.md", "status": status, "changed": changed})

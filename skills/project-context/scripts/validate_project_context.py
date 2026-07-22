@@ -792,6 +792,12 @@ def validate(
         for agent_file in agent_files
         if (root / agent_file).exists() or (root / agent_file).is_symlink()
     ]
+    try:
+        require_paths_not_ignored(
+            root, existing_agent_files, "agent instruction paths"
+        )
+    except ValueError as error:
+        errors.append(str(error))
     if not existing_agent_files:
         errors.append("missing AGENTS.md or CLAUDE.md project context reference")
 

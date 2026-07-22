@@ -734,6 +734,31 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertFalse(metadata_path.exists())
 
+    def test_finalize_rejects_ignored_agent_entrypoint(self):
+        (self.root / ".gitignore").write_text("AGENTS.md\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore agent entrypoint")
+        self.write_context()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        fresh_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "ignored by Git"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "init",
+                True,
+                fresh_hash,
+            )
+
+        self.assertFalse(metadata_path.exists())
+
     def test_record_rejects_project_context_documents_ignored_by_git(self):
         (self.root / ".gitignore").write_text("docs/\n", encoding="utf-8")
         self.git("add", ".gitignore")
@@ -2420,6 +2445,20 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(code, 1)
         self.assertTrue(any("ignored by Git" in message for message in messages))
 
+    def test_validator_rejects_ignored_agent_entrypoint(self):
+        (self.root / ".gitignore").write_text("AGENTS.md\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore agent entrypoint")
+        self.write_context()
+        self.record()
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("ignored by Git" in message for message in messages))
+
     def test_plan_does_not_call_a_committed_stale_index_no_op(self):
         self.write_multi_context()
         project_context_update.sync_context_index(
@@ -3329,6 +3368,22 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertEqual(plan_path.read_text(encoding="utf-8"), "# User notes\n")
 
+    def test_write_plan_rejects_ignored_context_paths_before_writing(self):
+        (self.root / ".gitignore").write_text("docs/\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore docs")
+        plan_path = self.root / project_context_update.DEFAULT_TEMP_PLAN
+
+        with self.assertRaisesRegex(ValueError, "ignored by Git"):
+            project_context_update.write_temp_plan(
+                self.root,
+                project_context_update.DEFAULT_TEMP_PLAN,
+                {"recommended_action": "create-docs", "docs": []},
+            )
+
+        self.assertFalse(plan_path.exists())
+        self.assertFalse((self.root / "docs").exists())
+
     def test_write_and_delete_plan_accept_legacy_english_sentinel(self):
         plan_path = self.root / project_context_update.DEFAULT_TEMP_PLAN
         plan_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3364,6 +3419,17 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(completed.returncode, 2, completed.stderr)
         self.assertIn("Git top-level", completed.stderr)
         self.assertFalse((nested / "AGENTS.md").exists())
+
+    def test_agent_helper_rejects_ignored_entrypoint_before_writing(self):
+        (self.root / ".gitignore").write_text("AGENTS.md\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore agent entrypoint")
+
+        completed = self.run_script("project_context_agents.py", self.root)
+
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+        self.assertIn("ignored by Git", completed.stderr)
+        self.assertFalse((self.root / "AGENTS.md").exists())
 
     def test_agent_helper_rejects_symlink_target_before_other_writes(self):
         outside = self.root.parent / "outside-agents.md"

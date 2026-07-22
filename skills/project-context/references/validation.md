@@ -11,7 +11,7 @@ exit 0만 완료다. warning은 보고하지만 완료를 막지 않는다. erro
 ## 오류 검사
 
 - managed path와 parent가 symlink가 아님
-- 홈·concept·index·metadata가 Git ignore 대상이 아님
+- 홈·concept·index·metadata와 생성·갱신하는 top-level agent 진입점이 Git ignore 대상이 아님
 - `_plan.md` 없음
 - 홈과 metadata 존재
 - schema v2, current generator version
@@ -58,4 +58,4 @@ helper는 고정 경로만 쓴다.
 - `docs/project-context/_plan.md`
 - top-level agent marker
 
-CLI의 `--doc`, `--metadata`, `--plan-path` 같은 managed path override는 지원하지 않는다. repo root는 실제 Git top-level과 같아야 한다. destination collision, non-regular file, symlink tree는 write 전에 실패해야 한다.
+CLI의 `--doc`, `--metadata`, `--plan-path` 같은 managed path override는 지원하지 않는다. repo root는 실제 Git top-level과 같아야 한다. Git ignore 대상, destination collision, non-regular file, symlink tree는 write 전에 실패해야 한다.

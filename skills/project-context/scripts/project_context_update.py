@@ -1407,6 +1407,13 @@ def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
     require_git_repository(root)
     require_expected_path("temporary plan path", plan_rel, DEFAULT_TEMP_PLAN)
     require_clean_source_worktree(root, "write project context plan")
+    # ponytail: new concept paths are chosen after planning; finalize checks the
+    # full inventory, revisit when plans declare exact destination pages.
+    require_paths_not_ignored(
+        root,
+        [DEFAULT_DOC, DEFAULT_METADATA],
+        "project context paths",
+    )
     symlink = symlink_parent(root, plan_rel)
     if symlink:
         raise ValueError(f"temporary plan parent must not be a symlink: {symlink}")
