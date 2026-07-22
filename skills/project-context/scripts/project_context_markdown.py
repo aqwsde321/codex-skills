@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import string
+from urllib.parse import unquote
 
 
 ESCAPABLE = frozenset(string.punctuation)
@@ -15,6 +16,28 @@ THEMATIC_BREAK_RE = re.compile(
     r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$"
 )
 SETEXT_UNDERLINE_RE = re.compile(r" {0,3}(?:=+|-+)[ \t]*$")
+
+
+def clean_link_target(target: str) -> str:
+    target = target.strip().split("#", 1)[0].split("?", 1)[0]
+    return unquote(target).strip()
+
+
+def is_external_link_target(target: str) -> bool:
+    lowered = target.strip().lower()
+    return (
+        "://" in lowered
+        or lowered.startswith("#")
+        or lowered.startswith("mailto:")
+        or lowered.startswith("tel:")
+    )
+
+
+def relative_link_target(target: str) -> str | None:
+    cleaned = clean_link_target(target)
+    if not cleaned or is_external_link_target(target) or cleaned.startswith("/"):
+        return None
+    return cleaned
 
 
 def _is_escaped(text: str, index: int) -> bool:
@@ -490,3 +513,17 @@ def iter_inline_link_targets(markdown: str):
     """Yield rendered inline-link destinations, excluding images and code/comments."""
     for target, _, _ in iter_inline_links(markdown):
         yield target
+
+
+def iter_clean_link_targets(markdown: str):
+    for raw_target in iter_inline_link_targets(markdown):
+        target = clean_link_target(raw_target)
+        if target:
+            yield target
+
+
+def iter_relative_link_targets(markdown: str):
+    for raw_target in iter_inline_link_targets(markdown):
+        target = relative_link_target(raw_target)
+        if target is not None:
+            yield target

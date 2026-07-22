@@ -14,7 +14,6 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from urllib.parse import unquote
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -34,7 +33,17 @@ from project_context_index import (  # noqa: E402
     render_context_indexes,
     wiki_inventory,
 )
-from project_context_markdown import iter_inline_link_targets  # noqa: E402
+from project_context_agents import (  # noqa: E402
+    END_MARKER as AGENT_END_MARKER,
+    START_MARKER as AGENT_START_MARKER,
+    is_semantically_current_section as is_semantically_current_agent_section,
+    marked_section as marked_agent_section,
+)
+from project_context_markdown import (  # noqa: E402
+    is_external_link_target as is_external_target,
+    iter_clean_link_targets as iter_markdown_links,
+    iter_relative_link_targets as iter_relative_links,
+)
 from project_context_graph import (  # noqa: E402
     collect_semantic_relationships,
     page_content_hashes,
@@ -93,22 +102,6 @@ PRIMARY_DOC_SECTION_PATTERNS = {
     ),
 }
 CONTEXT_DOC_TEXT = "docs/project-context.md"
-REPOSITORY_OVERVIEW_TEXT = "repository overview"
-ARCHITECTURE_NOTES_TEXT = "architecture notes"
-TESTING_GUIDANCE_TEXT = "testing guidance"
-SOURCE_MAPS_TEXT = "source maps"
-FOLLOW_LINKS_TEXT = "follow its links"
-CODE_DISCOVERY_TEXT = "code discovery"
-ORDINARY_PROJECT_QUESTIONS_TEXT = "ordinary project questions"
-AREA_INDEXES_TEXT = "follow area indexes"
-DO_NOT_PRELOAD_TEXT = "do not preload every concept page"
-READ_WHEN_TEXT = "read_when"
-EXACT_IMPLEMENTATION_VERIFICATION_TEXT = "exact implementation verification"
-CURRENT_SOURCE_AUTHORITATIVE_TEXT = "current source remains authoritative"
-SKILL_TRIGGER_TEXT = "$project-context"
-WRITE_AUTHORITY_TEXT = "missing or stale context alone does not authorize writes"
-AGENT_START_MARKER = "<!-- project-context:start -->"
-AGENT_END_MARKER = "<!-- project-context:end -->"
 
 def git_output(root: Path, args: list[str]) -> str | None:
     try:
@@ -141,38 +134,6 @@ def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
     except OSError:
         return False
     return result.returncode == 0
-
-
-def is_external_target(target: str) -> bool:
-    lowered = target.lower()
-    return (
-        "://" in lowered
-        or lowered.startswith("#")
-        or lowered.startswith("mailto:")
-        or lowered.startswith("tel:")
-    )
-
-
-def clean_target(target: str) -> str:
-    target = target.strip()
-    target = target.split("#", 1)[0]
-    target = target.split("?", 1)[0]
-    return unquote(target).strip()
-
-
-def iter_relative_links(markdown: str):
-    for raw_target in iter_inline_link_targets(markdown):
-        target = clean_target(raw_target)
-        if not target or is_external_target(target) or target.startswith("/"):
-            continue
-        yield target
-
-
-def iter_markdown_links(markdown: str):
-    for raw_target in iter_inline_link_targets(markdown):
-        target = clean_target(raw_target)
-        if target:
-            yield target
 
 
 def discover_docs(root: Path, primary_doc: str) -> list[str]:
@@ -767,34 +728,6 @@ def validate_primary_size(root: Path, doc_rel: str) -> tuple[list[str], list[str
                 f"split into indexed concept pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
             )
     return errors, warnings
-
-
-def marked_agent_section(text: str) -> str | None:
-    start = text.find(AGENT_START_MARKER)
-    end = text.find(AGENT_END_MARKER)
-    if start == -1 or end == -1 or start > end:
-        return None
-    return text[start : end + len(AGENT_END_MARKER)]
-
-
-def is_semantically_current_agent_section(section: str) -> bool:
-    return (
-        CONTEXT_DOC_TEXT in section
-        and REPOSITORY_OVERVIEW_TEXT in section
-        and ARCHITECTURE_NOTES_TEXT in section
-        and TESTING_GUIDANCE_TEXT in section
-        and SOURCE_MAPS_TEXT in section
-        and FOLLOW_LINKS_TEXT in section
-        and CODE_DISCOVERY_TEXT in section
-        and ORDINARY_PROJECT_QUESTIONS_TEXT in section
-        and AREA_INDEXES_TEXT in section
-        and DO_NOT_PRELOAD_TEXT in section
-        and READ_WHEN_TEXT in section
-        and EXACT_IMPLEMENTATION_VERIFICATION_TEXT in section
-        and CURRENT_SOURCE_AUTHORITATIVE_TEXT in section
-        and SKILL_TRIGGER_TEXT in section
-        and WRITE_AUTHORITY_TEXT in section
-    )
 
 
 def validate(

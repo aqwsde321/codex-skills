@@ -2320,6 +2320,14 @@ read_when: 실행 흐름 변경 또는 동작 검증
             list(validate_project_context.iter_relative_links(sample)),
             ["../app/(auth)/page.tsx"],
         )
+        self.assertIs(
+            project_context_update.iter_relative_links,
+            validate_project_context.iter_relative_links,
+        )
+        self.assertEqual(
+            validate_project_context.is_semantically_current_agent_section.__module__,
+            "project_context_agents",
+        )
         self.assertEqual(code, 0, (messages, warnings))
 
     def test_validator_rejects_stale_doc_sources_values(self):

@@ -3,14 +3,13 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from urllib.parse import unquote
 
 from project_context_index import (
     FRONTMATTER_RE,
     INDEX_END_MARKER,
     INDEX_START_MARKER,
 )
-from project_context_markdown import iter_inline_links
+from project_context_markdown import iter_inline_links, relative_link_target
 
 
 EVIDENCE_HEADING_RE = re.compile(r"(?m)^##\s+근거\s*$")
@@ -46,22 +45,6 @@ def semantic_markdown(markdown: str) -> str:
     return body
 
 
-def _clean_target(target: str) -> str:
-    target = target.strip().split("#", 1)[0].split("?", 1)[0]
-    return unquote(target).strip()
-
-
-def _is_relative_target(target: str) -> bool:
-    lowered = target.lower()
-    return bool(target) and not (
-        target.startswith("/")
-        or target.startswith("#")
-        or "://" in lowered
-        or lowered.startswith("mailto:")
-        or lowered.startswith("tel:")
-    )
-
-
 def _is_link_only_line(markdown: str, target_start: int) -> bool:
     line_start = markdown.rfind("\n", 0, target_start) + 1
     line_end = markdown.find("\n", target_start)
@@ -90,8 +73,8 @@ def collect_semantic_relationships(
         for raw_target, target_start, _ in iter_inline_links(markdown):
             if _is_link_only_line(markdown, target_start):
                 continue
-            target = _clean_target(raw_target)
-            if not _is_relative_target(target):
+            target = relative_link_target(raw_target)
+            if target is None:
                 continue
             target_path = (path.parent / target).resolve()
             try:

@@ -43,23 +43,12 @@ For ordinary project questions, read the project context first and follow its li
 
 
 def is_semantically_current_section(section: str) -> bool:
-    return (
-        "docs/project-context.md" in section
-        and "repository overview" in section
-        and "architecture notes" in section
-        and "testing guidance" in section
-        and "source maps" in section
-        and "follow its links" in section
-        and "code discovery" in section
-        and "ordinary project questions" in section
-        and "follow area indexes" in section
-        and "do not preload every concept page" in section
-        and "read_when" in section
-        and "exact implementation verification" in section
-        and "current source remains authoritative" in section
-        and "$project-context" in section
-        and "missing or stale context alone does not authorize writes" in section
-    )
+    return section.strip() == SECTION.strip()
+
+
+def marked_section(text: str) -> str | None:
+    match = MARKED_SECTION_RE.search(text)
+    return match.group(0) if match else None
 
 
 def replace_sections(text: str, sections: list[re.Match]) -> tuple[str, bool]:

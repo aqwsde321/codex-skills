@@ -35,7 +35,15 @@ from project_context_index import (  # noqa: E402
     set_frontmatter_field,
     wiki_inventory,
 )
-from project_context_markdown import iter_inline_links, iter_inline_link_targets  # noqa: E402
+from project_context_agents import (  # noqa: E402
+    END_MARKER as AGENT_END_MARKER,
+    START_MARKER as AGENT_START_MARKER,
+)
+from project_context_markdown import (  # noqa: E402
+    is_external_link_target as is_external_target,
+    iter_inline_links,
+    iter_relative_link_targets as iter_relative_links,
+)
 from project_context_graph import (  # noqa: E402
     collect_semantic_relationships,
     page_content_hashes,
@@ -68,8 +76,6 @@ SCHEMA_VERSION = 2
 PLAN_SENTINEL = "# Project Context Draft Plan"
 UNMAPPED_START_MARKER = "<!-- project-context:unmapped:start -->"
 UNMAPPED_END_MARKER = "<!-- project-context:unmapped:end -->"
-AGENT_START_MARKER = "<!-- project-context:start -->"
-AGENT_END_MARKER = "<!-- project-context:end -->"
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 HIGH_SIGNAL_PATHS = {
     "AGENTS.md",
@@ -172,31 +178,6 @@ def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
     except OSError:
         return False
     return result.returncode == 0
-
-
-def clean_target(target: str) -> str:
-    target = target.strip()
-    target = target.split("#", 1)[0]
-    target = target.split("?", 1)[0]
-    return unquote(target).strip()
-
-
-def is_external_target(target: str) -> bool:
-    lowered = target.lower()
-    return (
-        "://" in lowered
-        or lowered.startswith("#")
-        or lowered.startswith("mailto:")
-        or lowered.startswith("tel:")
-    )
-
-
-def iter_relative_links(markdown: str):
-    for raw_target in iter_inline_link_targets(markdown):
-        target = clean_target(raw_target)
-        if not target or is_external_target(target) or target.startswith("/"):
-            continue
-        yield target
 
 
 def discover_docs(root: Path, primary_doc: str) -> list[str]:
