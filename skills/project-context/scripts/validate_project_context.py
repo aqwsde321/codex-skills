@@ -88,7 +88,9 @@ PRIMARY_DOC_SECTION_PATTERNS = {
         re.MULTILINE | re.IGNORECASE,
     ),
     "change guidance": re.compile(
-        r"^##\s+(?:작업\s*(?:전\s*)?(?:확인|주의|가이드)(?:\s*지점)?|Change Guidance|Working Notes|Agent Notes)\s*$",
+        r"^##\s+(?:작업\s*(?:전\s*)?(?:확인|주의|가이드)(?:\s*지점)?|"
+        r"변경\s*(?:판단|확인|주의|위험|가이드)(?:\s*지점)?|"
+        r"Change Guidance|Working Notes|Agent Notes)\s*$",
         re.MULTILINE | re.IGNORECASE,
     ),
     "testing guidance": re.compile(

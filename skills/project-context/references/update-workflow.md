@@ -53,7 +53,7 @@ migration은 구조 변경만 기록하고 기존 `reviewed_commit`을 보존한
 python3 -B <skill-dir>/scripts/project_context_update.py write-plan .
 ```
 
-`_plan.md`에서 intended page, source evidence, 1-hop 후보, 남은 질문을 갱신한다. `Unmapped Change Resolutions` JSON의 `pending`을 다음 중 하나로 바꾼다.
+`_plan.md`에서 예정 문서, 소스 근거, 1-hop 후보, 남은 질문을 갱신한다. `매핑되지 않은 변경 처리` JSON의 `pending`을 다음 중 하나로 바꾼다.
 
 - `documented`: 현재 page에 source link와 설명 추가
 - `backlog`: 홈 `## 문서화 백로그`에 source link·사유 추가하고 JSON reason 작성

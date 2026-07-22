@@ -1150,12 +1150,32 @@ read_when: 실행 흐름 변경 또는 동작 검증
             {"recommended_action": "no-op", "docs": [project_context_update.DEFAULT_DOC]}
         )
 
-        self.assertIn("## Evidence-backed Relationships", plan)
-        self.assertIn("source concept -> relationship meaning -> target concept", plan)
-        self.assertIn("## Deferred Coverage", plan)
-        self.assertIn("area, source anchor, and reason", plan)
+        self.assertTrue(plan.startswith("# 프로젝트 컨텍스트 임시 계획\n"))
+        self.assertIn("## 근거 기반 관계", plan)
+        self.assertIn("소스 개념 -> 관계 의미 -> 대상 개념", plan)
+        self.assertIn("## 보류한 범위", plan)
+        self.assertIn("영역, 소스 근거, 사유", plan)
         self.assertIn(project_context_update.UNMAPPED_START_MARKER, plan)
         self.assertEqual(project_context_update.parse_unmapped_resolutions(plan), [])
+
+    def test_primary_change_decision_heading_satisfies_guidance_check(self):
+        context = self.write_context()
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "## 작업 전 확인 지점", "## 변경 판단"
+            ),
+            encoding="utf-8",
+        )
+        self.record()
+
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 0, messages)
+        self.assertFalse(
+            any("change guidance section" in warning for warning in warnings)
+        )
 
     def test_finalize_removes_plan_after_valid_noop(self):
         self.write_context()
@@ -1904,6 +1924,16 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertTrue(
             (self.root / "docs/project-context/workflows/index.md").is_file()
         )
+        architecture_index = (
+            self.root / "docs/project-context/architecture/index.md"
+        ).read_text(encoding="utf-8")
+        workflows_index = (
+            self.root / "docs/project-context/workflows/index.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("title: 아키텍처", architecture_index)
+        self.assertIn("# 아키텍처", architecture_index)
+        self.assertIn("title: 워크플로", workflows_index)
+        self.assertIn("# 워크플로", workflows_index)
 
     def test_sync_index_removes_home_marker_after_last_concept_is_deleted(self):
         context = self.write_multi_context()
@@ -2699,6 +2729,28 @@ read_when: 실행 흐름 변경 또는 동작 검증
             )
 
         self.assertEqual(plan_path.read_text(encoding="utf-8"), "# User notes\n")
+
+    def test_write_and_delete_plan_accept_legacy_english_sentinel(self):
+        plan_path = self.root / project_context_update.DEFAULT_TEMP_PLAN
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Project Context Draft Plan\nlegacy\n", encoding="utf-8")
+
+        project_context_update.write_temp_plan(
+            self.root,
+            project_context_update.DEFAULT_TEMP_PLAN,
+            {"recommended_action": "no-op", "docs": []},
+        )
+
+        self.assertTrue(
+            plan_path.read_text(encoding="utf-8").startswith(
+                "# 프로젝트 컨텍스트 임시 계획\n"
+            )
+        )
+        _, deleted = project_context_update.delete_temp_plan(
+            self.root, project_context_update.DEFAULT_TEMP_PLAN
+        )
+        self.assertTrue(deleted)
+        self.assertFalse(plan_path.exists())
 
     def test_agent_helper_rejects_nested_git_directory_before_writing(self):
         nested = self.root / "nested"

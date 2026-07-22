@@ -21,6 +21,14 @@ CONCEPT_FIELD_LIMITS = {
     "type": 40,
     **INDEX_FIELD_LIMITS,
 }
+AREA_TITLES = {
+    "architecture": "아키텍처",
+    "domains": "도메인",
+    "integrations": "연동",
+    "operations": "운영",
+    "testing": "테스트",
+    "workflows": "워크플로",
+}
 
 
 def parse_frontmatter(markdown: str) -> dict[str, str]:
@@ -378,7 +386,15 @@ def remove_context_index(markdown: str) -> tuple[str, bool]:
 
 
 def area_title(area: str) -> str:
-    return area.replace("-", " ").replace("_", " ").strip().title() or area
+    display = area.replace("-", " ").replace("_", " ").strip()
+    if not display:
+        return "프로젝트 영역"
+    known_title = AREA_TITLES.get(display.casefold())
+    if known_title:
+        return known_title
+    if re.search(r"[가-힣]", display):
+        return display
+    return f"{display} 영역"
 
 
 def new_area_index_markdown(area: str) -> str:

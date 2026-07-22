@@ -75,7 +75,8 @@ SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
 GENERATOR_VERSION = "21"
 SCHEMA_VERSION = 2
-PLAN_SENTINEL = "# Project Context Draft Plan"
+PLAN_SENTINEL = "# 프로젝트 컨텍스트 임시 계획"
+LEGACY_PLAN_SENTINELS = ("# Project Context Draft Plan",)
 UNMAPPED_START_MARKER = "<!-- project-context:unmapped:start -->"
 UNMAPPED_END_MARKER = "<!-- project-context:unmapped:end -->"
 HIGH_SIGNAL_PATHS = {
@@ -1093,7 +1094,7 @@ def resolve_unmapped_changes(
 def format_plan(plan: dict) -> str:
     required_actions = plan.get("required_actions") or [plan.get("recommended_action")]
     lines = [
-        "# Project Context Update Plan",
+        "# 프로젝트 컨텍스트 갱신 계획",
         "",
         f"- current_head: {plan.get('current_head_short') or plan.get('current_head') or '(unknown)'}",
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
@@ -1107,7 +1108,7 @@ def format_plan(plan: dict) -> str:
         f"- missing_last_update_warning: {plan.get('missing_last_update_warning') or '(none)'}",
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         "",
-        "## Soft Diff Budget Warnings",
+        "## 소프트 diff 예산 경고",
     ]
     budget_warnings = plan.get("soft_diff_budget_warnings", [])
     if budget_warnings:
@@ -1116,22 +1117,22 @@ def format_plan(plan: dict) -> str:
         lines.append("- (none)")
     lines.extend([
         "",
-        "## Document Structure Issues",
+        "## 문서 구조 문제",
         *format_structure_issues(plan.get("structure_issues", [])),
     ])
     wiki_errors = plan.get("wiki_structure_errors", [])
-    lines.extend(["", "## Wiki Structure Errors"])
+    lines.extend(["", "## 위키 구조 오류"])
     if wiki_errors:
         lines.extend(f"- {error}" for error in wiki_errors)
     else:
         lines.append("- (none)")
     lines.extend([
         "",
-        "## Project Context Git Summary",
+        "## 프로젝트 컨텍스트 Git 요약",
         "",
         *format_block(plan.get("git_summary")),
         "",
-        "## Last Update Metadata",
+        "## 마지막 갱신 메타데이터",
         *format_json_block(plan.get("last_update_metadata")),
         "",
         f"## {plan.get('git_status_label')}",
@@ -1149,7 +1150,7 @@ def format_plan(plan: dict) -> str:
         f"## {plan.get('dirty_changes_label')}",
         *format_changes(plan.get("dirty_changes", [])),
         "",
-        "## Docs Inventory",
+        "## 문서 목록",
     ])
     doc_sources = plan.get("doc_sources", {})
     for doc in plan.get("docs", []):
@@ -1157,46 +1158,46 @@ def format_plan(plan: dict) -> str:
         lines.append(f"- {doc}")
         if sources:
             for source in sources:
-                lines.append(f"  - source: {source}")
+                lines.append(f"  - 소스: {source}")
         else:
-            lines.append("  - source: (none)")
-    lines.extend(["", "## Affected Docs"])
+            lines.append("  - 소스: (없음)")
+    lines.extend(["", "## 영향 문서"])
     affected_docs = plan.get("affected_docs", {})
     if affected_docs:
         for doc, paths in affected_docs.items():
             lines.append(f"- {doc}")
             for path in paths:
-                lines.append(f"  - changed: {path}")
+                lines.append(f"  - 변경: {path}")
     else:
         lines.append("- (none)")
-    lines.extend(["", "## Related 1-hop Review Candidates"])
+    lines.extend(["", "## 관련 1-hop 검토 후보"])
     related_candidates = plan.get("related_review_candidates", {})
     if related_candidates:
         for doc, related_docs in related_candidates.items():
             lines.append(f"- {doc}")
-            lines.extend(f"  - review: {related_doc}" for related_doc in related_docs)
+            lines.extend(f"  - 검토: {related_doc}" for related_doc in related_docs)
     else:
         lines.append("- (none)")
-    lines.extend(["", "## Unmapped Changes"])
+    lines.extend(["", "## 매핑되지 않은 변경"])
     unmapped = plan.get("unmapped_changes", [])
     if unmapped:
         lines.extend(f"- {path}" for path in unmapped)
     else:
         lines.append("- (none)")
 
-    lines.extend(["", "## Generated Doc Changes"])
+    lines.extend(["", "## 생성 문서 변경"])
     generated_doc_changes = plan.get("generated_doc_changes", [])
     if generated_doc_changes:
         lines.extend(f"- {path}" for path in generated_doc_changes)
     else:
         lines.append("- (none)")
-    lines.extend(["", "## Generated Context Doc Changes"])
+    lines.extend(["", "## 생성 컨텍스트 문서 변경"])
     generated_context_doc_changes = plan.get("generated_context_doc_changes", [])
     if generated_context_doc_changes:
         lines.extend(f"- {path}" for path in generated_context_doc_changes)
     else:
         lines.append("- (none)")
-    lines.extend(["", "## Renamed Paths"])
+    lines.extend(["", "## 이름 변경 경로"])
     renamed_paths = plan.get("renamed_paths", [])
     if renamed_paths:
         for renamed_path in renamed_paths:
@@ -1211,9 +1212,9 @@ def format_temp_plan(plan: dict) -> str:
     lines = [
         PLAN_SENTINEL,
         "",
-        "Delete this file before finishing the project-context run.",
+        "project-context 실행을 마치기 전에 이 파일을 삭제한다.",
         "",
-        "## Run Summary",
+        "## 실행 요약",
         "",
         f"- current_head: {plan.get('current_head_short') or plan.get('current_head') or '(unknown)'}",
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
@@ -1225,15 +1226,15 @@ def format_temp_plan(plan: dict) -> str:
         f"- soft_diff_budget_warning: {plan.get('soft_diff_budget_warning') or '(none)'}",
         f"- last_update_metadata_source: {plan.get('last_update_metadata_source') or '(none)'}",
         "",
-        "## Project Context Git Summary",
+        "## 프로젝트 컨텍스트 Git 요약",
         "",
         *format_block(plan.get("git_summary")),
         "",
-        "## Last Update Metadata",
+        "## 마지막 갱신 메타데이터",
         "",
         *format_json_block(plan.get("last_update_metadata")),
         "",
-        "## Soft Diff Budget Warnings",
+        "## 소프트 diff 예산 경고",
         "",
     ]
     budget_warnings = plan.get("soft_diff_budget_warnings", [])
@@ -1244,12 +1245,12 @@ def format_temp_plan(plan: dict) -> str:
 
     lines.extend([
         "",
-        "## Document Structure Issues",
+        "## 문서 구조 문제",
         "",
         *format_structure_issues(plan.get("structure_issues", [])),
     ])
     wiki_errors = plan.get("wiki_structure_errors", [])
-    lines.extend(["", "## Wiki Structure Errors", ""])
+    lines.extend(["", "## 위키 구조 오류", ""])
     if wiki_errors:
         lines.extend(f"- {error}" for error in wiki_errors)
     else:
@@ -1257,7 +1258,7 @@ def format_temp_plan(plan: dict) -> str:
 
     lines.extend([
         "",
-        "## Intended Docs",
+        "## 예정 문서",
         "",
     ])
     for doc in plan.get("docs", []):
@@ -1265,41 +1266,41 @@ def format_temp_plan(plan: dict) -> str:
     if not plan.get("docs"):
         lines.append("- docs/project-context.md")
 
-    lines.extend(["", "## Docs Impact Plan", ""])
+    lines.extend(["", "## 문서 영향 계획", ""])
     affected_docs = plan.get("affected_docs", {})
     if affected_docs:
         for doc, paths in affected_docs.items():
-            lines.append(f"- doc: {doc}")
+            lines.append(f"- 문서: {doc}")
             for path in paths:
-                lines.append(f"  - source change: {path}")
-                lines.append("    - edit needed: confirm changed behavior and update only stale claims")
-                lines.append("    - why: linked source changed since the previous successful run")
+                lines.append(f"  - 소스 변경: {path}")
+                lines.append("    - 필요한 수정: 바뀐 동작을 확인하고 오래된 주장만 갱신")
+                lines.append("    - 사유: 이전 성공 실행 이후 연결된 소스가 변경됨")
     else:
         lines.append("- (none)")
 
-    lines.extend(["", "## Related 1-hop Review Candidates", ""])
+    lines.extend(["", "## 관련 1-hop 검토 후보", ""])
     related_candidates = plan.get("related_review_candidates", {})
     if related_candidates:
         for doc, related_docs in related_candidates.items():
             lines.append(f"- {doc}")
-            lines.extend(f"  - review: {related_doc}" for related_doc in related_docs)
+            lines.extend(f"  - 검토: {related_doc}" for related_doc in related_docs)
     else:
         lines.append("- (none)")
 
-    lines.extend(["", "## Unmapped Changes", ""])
+    lines.extend(["", "## 매핑되지 않은 변경", ""])
     unmapped = plan.get("unmapped_changes", [])
     if unmapped:
         for path in unmapped:
-            lines.append(f"- source change: {path}")
-            lines.append("  - docs affected: confirm whether a new section/source link is needed")
-            lines.append("  - why: no existing context doc links to this source")
+            lines.append(f"- 소스 변경: {path}")
+            lines.append("  - 영향 문서: 새 섹션이나 소스 링크가 필요한지 확인")
+            lines.append("  - 사유: 이 소스를 연결한 기존 컨텍스트 문서가 없음")
     else:
         lines.append("- (none)")
 
     lines.extend(
         [
             "",
-            "## Unmapped Change Resolutions",
+            "## 매핑되지 않은 변경 처리",
             "",
             "각 항목을 documented, backlog, ignored 중 하나로 바꾸고 backlog/ignored에는 reason을 쓴다.",
             "",
@@ -1307,16 +1308,16 @@ def format_temp_plan(plan: dict) -> str:
         ]
     )
 
-    lines.extend(["", "## Generated Context Doc Changes", ""])
+    lines.extend(["", "## 생성 컨텍스트 문서 변경", ""])
     generated_context_doc_changes = plan.get("generated_context_doc_changes", [])
     if generated_context_doc_changes:
         for path in generated_context_doc_changes:
-            lines.append(f"- context doc change: {path}")
-            lines.append("  - action: verify whether the local doc edit is intended, stale, or should be recorded")
+            lines.append(f"- 컨텍스트 문서 변경: {path}")
+            lines.append("  - 조치: 로컬 문서 수정이 의도됐는지, 오래됐는지, 기록할지 확인")
     else:
         lines.append("- (none)")
 
-    lines.extend(["", "## Renamed Paths", ""])
+    lines.extend(["", "## 이름 변경 경로", ""])
     renamed_paths = plan.get("renamed_paths", [])
     if renamed_paths:
         for renamed_path in renamed_paths:
@@ -1324,13 +1325,13 @@ def format_temp_plan(plan: dict) -> str:
     else:
         lines.append("- (none)")
 
-    lines.extend(["", "## Evidence-backed Relationships", ""])
-    lines.append("- (none yet; for related concepts use: source concept -> relationship meaning -> target concept)")
+    lines.extend(["", "## 근거 기반 관계", ""])
+    lines.append("- (아직 없음; 관련 개념은 소스 개념 -> 관계 의미 -> 대상 개념 형식 사용)")
 
-    lines.extend(["", "## Deferred Coverage", ""])
-    lines.append("- (none yet; record any page-budget deferral with area, source anchor, and reason)")
+    lines.extend(["", "## 보류한 범위", ""])
+    lines.append("- (아직 없음; 문서 생성을 보류하면 영역, 소스 근거, 사유를 기록)")
 
-    lines.extend(["", "## Source Evidence", ""])
+    lines.extend(["", "## 소스 근거", ""])
     doc_sources = plan.get("doc_sources", {})
     if doc_sources:
         for doc, sources in doc_sources.items():
@@ -1339,12 +1340,19 @@ def format_temp_plan(plan: dict) -> str:
                 for source in sources:
                     lines.append(f"  - {source}")
             else:
-                lines.append("  - (none yet)")
+                lines.append("  - (아직 없음)")
     else:
-        lines.append("- (none yet)")
+        lines.append("- (아직 없음)")
 
-    lines.extend(["", "## Remaining Questions", "", "- (none yet)"])
+    lines.extend(["", "## 남은 질문", "", "- (아직 없음)"])
     return "\n".join(lines) + "\n"
+
+
+def has_project_context_plan_sentinel(markdown: str) -> bool:
+    return any(
+        markdown.startswith(f"{sentinel}\n")
+        for sentinel in (PLAN_SENTINEL, *LEGACY_PLAN_SENTINELS)
+    )
 
 
 def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
@@ -1359,7 +1367,7 @@ def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
     if plan_path.exists():
         if not plan_path.is_file():
             raise ValueError(f"temporary plan path must be a regular file: {plan_rel}")
-        if not read_text(plan_path).startswith(f"{PLAN_SENTINEL}\n"):
+        if not has_project_context_plan_sentinel(read_text(plan_path)):
             raise ValueError("refusing to overwrite a non-project-context plan")
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(plan_path, format_temp_plan(plan))
@@ -1379,7 +1387,7 @@ def delete_temp_plan(root: Path, plan_rel: str) -> tuple[str, bool]:
         raise ValueError(f"temporary plan path must not be a symlink: {plan_rel}")
     if not plan_path.is_file():
         raise ValueError(f"temporary plan path must be a regular file: {plan_rel}")
-    if not read_text(plan_path).startswith(f"{PLAN_SENTINEL}\n"):
+    if not has_project_context_plan_sentinel(read_text(plan_path)):
         raise ValueError("refusing to delete a non-project-context plan")
     plan_path.unlink()
     return f"temporary plan deleted: {plan_rel}", True
