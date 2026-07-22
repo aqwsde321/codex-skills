@@ -34,6 +34,7 @@ from project_context_index import (  # noqa: E402
     replace_context_index,
     replace_or_insert_home_context_index,
     set_frontmatter_field,
+    validate_entry_fields,
     wiki_inventory,
 )
 from project_context_agents import (  # noqa: E402
@@ -1091,6 +1092,18 @@ def resolve_unmapped_changes(
     return resolved
 
 
+def format_related_review_candidates(
+    related_candidates: dict[str, list[str]],
+) -> list[str]:
+    if not related_candidates:
+        return ["- (none)"]
+    lines: list[str] = []
+    for doc, related_docs in related_candidates.items():
+        lines.append(f"- {doc}")
+        lines.extend(f"  - 검토: {related_doc}" for related_doc in related_docs)
+    return lines
+
+
 def format_plan(plan: dict) -> str:
     required_actions = plan.get("required_actions") or [plan.get("recommended_action")]
     lines = [
@@ -1171,13 +1184,11 @@ def format_plan(plan: dict) -> str:
     else:
         lines.append("- (none)")
     lines.extend(["", "## 관련 1-hop 검토 후보"])
-    related_candidates = plan.get("related_review_candidates", {})
-    if related_candidates:
-        for doc, related_docs in related_candidates.items():
-            lines.append(f"- {doc}")
-            lines.extend(f"  - 검토: {related_doc}" for related_doc in related_docs)
-    else:
-        lines.append("- (none)")
+    lines.extend(
+        format_related_review_candidates(
+            plan.get("related_review_candidates", {})
+        )
+    )
     lines.extend(["", "## 매핑되지 않은 변경"])
     unmapped = plan.get("unmapped_changes", [])
     if unmapped:
@@ -1279,13 +1290,11 @@ def format_temp_plan(plan: dict) -> str:
         lines.append("- (none)")
 
     lines.extend(["", "## 관련 1-hop 검토 후보", ""])
-    related_candidates = plan.get("related_review_candidates", {})
-    if related_candidates:
-        for doc, related_docs in related_candidates.items():
-            lines.append(f"- {doc}")
-            lines.extend(f"  - 검토: {related_doc}" for related_doc in related_docs)
-    else:
-        lines.append("- (none)")
+    lines.extend(
+        format_related_review_candidates(
+            plan.get("related_review_candidates", {})
+        )
+    )
 
     lines.extend(["", "## 매핑되지 않은 변경", ""])
     unmapped = plan.get("unmapped_changes", [])
@@ -1462,17 +1471,10 @@ def _validate_migration_fields(
         *((concept, CONCEPT_FIELD_LIMITS) for concept in concepts),
         *((index, INDEX_FIELD_LIMITS) for index in indexes),
     ]:
-        fields = parse_frontmatter(documents[doc])
-        for field, limit in limits.items():
-            value = fields.get(field, "").strip()
-            if not value:
-                errors.append(f"{doc}: missing index metadata: {field}")
-            elif len(value) > limit:
-                errors.append(
-                    f"{doc}: index metadata {field} exceeds {limit} characters"
-                )
-            elif "[" in value or "]" in value:
-                errors.append(f"{doc}: index metadata {field} must be plain text")
+        _, field_errors = validate_entry_fields(
+            doc, parse_frontmatter(documents[doc]), limits
+        )
+        errors.extend(field_errors)
     return errors
 
 

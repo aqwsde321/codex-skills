@@ -105,20 +105,6 @@ PRIMARY_DOC_SECTION_PATTERNS = {
 }
 CONTEXT_DOC_TEXT = "docs/project-context.md"
 
-def git_output(root: Path, args: list[str]) -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "--no-pager", *args],
-            cwd=root,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return result.stdout.strip() or None
-
 
 def git_resolve_commit(root: Path, ref: str) -> str | None:
     return resolve_commit_oid(root, ref)

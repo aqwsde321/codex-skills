@@ -1444,7 +1444,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 "required_actions: update-affected-docs, review-document-structure",
                 rendered,
             )
-            self.assertIn("## Document Structure Issues", rendered)
+            self.assertIn("## 문서 구조 문제", rendered)
             self.assertIn("[single-page-primary-too-large]", rendered)
             self.assertIn(project_context_update.DEFAULT_DOC, rendered)
 
@@ -1719,7 +1719,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("[Entrypoint](../../../app.py)", architecture_markdown)
         self.assertIn("[Project context](../../project-context.md)", architecture_markdown)
         self.assertIn("[Architecture](../architecture/overview.md)", workflows_markdown)
-        self.assertIn("[Architecture](project-context/architecture/index.md)", home)
+        self.assertIn("[아키텍처](project-context/architecture/index.md)", home)
         self.assertIn("custom_home: preserve-me", home)
         self.assertEqual(metadata["schema_version"], 2)
         self.assertEqual(metadata["pages"], result["pages"])
@@ -2276,6 +2276,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         agent_path = self.root / "AGENTS.md"
         custom = "# Rules\n\n## Project Context\n\nKEEP-CUSTOM-RULE\n"
         agent_path.write_text(custom, encoding="utf-8")
+        self.git("add", "AGENTS.md")
+        self.git("commit", "-m", "docs: add custom agent rules")
 
         status, changed = project_context_agents.ensure_file(
             agent_path, create_if_missing=False

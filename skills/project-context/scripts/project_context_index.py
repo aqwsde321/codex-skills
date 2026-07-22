@@ -135,7 +135,7 @@ def wiki_inventory(
     }
 
 
-def _validated_entry_fields(
+def validate_entry_fields(
     doc: str,
     fields: dict[str, str],
     limits: dict[str, int],
@@ -183,7 +183,7 @@ def collect_index_entries(
             else path.read_text(encoding="utf-8", errors="replace")
         )
         fields = parse_frontmatter(markdown)
-        values, field_errors = _validated_entry_fields(doc, fields, limits)
+        values, field_errors = validate_entry_fields(doc, fields, limits)
         errors.extend(field_errors)
         if field_errors:
             continue
@@ -315,17 +315,6 @@ def render_context_indexes(
             intro="작업 목적과 `읽을 때`가 맞는 개념 문서만 연다.",
         )
     return (None, errors) if errors else (rendered, [])
-
-
-def render_context_index(
-    root: Path,
-    primary_doc: str,
-    docs: list[str],
-) -> tuple[str | None, list[str]]:
-    rendered, errors = render_context_indexes(root, primary_doc, docs)
-    if rendered is None:
-        return None, errors
-    return rendered.get(primary_doc), errors
 
 
 def extract_context_index(markdown: str) -> tuple[str | None, list[str]]:
