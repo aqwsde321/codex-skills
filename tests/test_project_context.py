@@ -1625,7 +1625,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
                 "## 근거",
-                "## 관련 문서\n\n- [Workflow overview](../workflows/overview.md)\n\n## 근거",
+                "## 관련 문서\n\n"
+                "- [Workflow overview](../workflows/overview.md), "
+                "[Workflow details](../workflows/overview.md)\n\n"
+                "## 근거",
             ),
             encoding="utf-8",
         )
@@ -1634,7 +1637,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
-                "- [Workflow overview](../workflows/overview.md)",
+                "- [Workflow overview](../workflows/overview.md), "
+                "[Workflow details](../workflows/overview.md)",
                 "[Workflow overview](../workflows/overview.md)은 구조 결정 뒤의 실행 흐름을 설명한다.",
             ),
             encoding="utf-8",
@@ -1784,6 +1788,16 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("generated_by: project-context-index", created)
         self.assertIn("[Architecture Overview](overview.md)", created)
         self.assertEqual(code, 0, (messages, warnings))
+
+    def test_generated_area_index_uses_one_area_suffix(self):
+        singular = project_context_update.new_area_index_markdown("domain")
+        custom = project_context_update.new_area_index_markdown("custom-area")
+
+        self.assertIn("title: 도메인", singular)
+        self.assertIn("description: 도메인 영역의 프로젝트 컨텍스트", singular)
+        self.assertIn("description: custom area 영역의 프로젝트 컨텍스트", custom)
+        self.assertNotIn("영역 영역", singular)
+        self.assertNotIn("영역 영역", custom)
 
     def test_legacy_wiki_migration_is_read_only_until_applied(self):
         self.write_legacy_multi_context()
@@ -2661,6 +2675,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
         workflow = (skill_root / "references" / "update-workflow.md").read_text(
             encoding="utf-8"
         )
+        authoring = (skill_root / "references" / "authoring.md").read_text(
+            encoding="utf-8"
+        )
 
         self.assertNotIn("project_context_update.py", skill)
         self.assertNotIn("project_context_agents.py", skill)
@@ -2669,6 +2686,14 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("`_plan.md`나 문서를 만들기 전에", workflow)
         self.assertIn("홈의 `source_commit`만", workflow)
         self.assertNotIn("홈·concept의 `source_commit`", workflow)
+        for heading in (
+            "## 프로젝트 요약",
+            "## 변경 판단",
+            "## 검증 방법",
+            "## 주요 흐름",
+        ):
+            self.assertIn(f"`{heading}`", authoring)
+        self.assertNotIn("정확한 표제어는 문맥에 맞게", authoring)
 
     def test_git_paths_are_lossless_for_unicode_arrow_and_rename(self):
         unicode_path = self.root / "한글.py"

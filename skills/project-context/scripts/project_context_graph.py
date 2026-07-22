@@ -9,7 +9,10 @@ from project_context_index import (
     INDEX_END_MARKER,
     INDEX_START_MARKER,
 )
-from project_context_markdown import iter_inline_links, relative_link_target
+from project_context_markdown import (
+    iter_inline_links_with_spans,
+    relative_link_target,
+)
 
 
 EVIDENCE_HEADING_RE = re.compile(r"(?m)^##\s+근거\s*$")
@@ -18,10 +21,8 @@ GENERATED_INDEX_RE = re.compile(
     rf"{re.escape(INDEX_START_MARKER)}.*?{re.escape(INDEX_END_MARKER)}",
     re.DOTALL,
 )
-LINK_ONLY_LINE_RE = re.compile(
-    r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?\[[^\]\n]+\]"
-    r"\((?:[^()\n]|\([^()\n]*\))*\)\s*[.,;:]?\s*$"
-)
+LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
+NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def page_content_hashes(root: Path, pages: list[str]) -> dict[str, str]:
@@ -45,14 +46,34 @@ def semantic_markdown(markdown: str) -> str:
     return body
 
 
-def _is_link_only_line(markdown: str, target_start: int) -> bool:
-    line_start = markdown.rfind("\n", 0, target_start) + 1
-    line_end = markdown.find("\n", target_start)
-    if line_end == -1:
-        line_end = len(markdown)
+def _relationship_prose_lines(
+    markdown: str,
+    links: list[tuple[str, int, int, int, int]],
+) -> set[int]:
+    spans_by_line: dict[int, tuple[int, list[tuple[int, int]]]] = {}
+    for _, target_start, _, link_start, link_end in links:
+        line_start = markdown.rfind("\n", 0, target_start) + 1
+        line_end = markdown.find("\n", target_start)
+        if line_end == -1:
+            line_end = len(markdown)
+        if link_start < line_start or link_end > line_end:
+            continue
+        _, spans = spans_by_line.setdefault(line_start, (line_end, []))
+        spans.append((link_start, link_end))
+
+    prose_lines: set[int] = set()
+    for line_start, (line_end, spans) in spans_by_line.items():
+        remaining = markdown[line_start:line_end]
+        for link_start, link_end in sorted(spans, reverse=True):
+            start = link_start - line_start
+            end = link_end - line_start
+            remaining = remaining[:start] + remaining[end:]
+        remaining = LIST_PREFIX_RE.sub("", remaining, count=1)
+        if NON_WORD_RE.sub("", remaining):
+            prose_lines.add(line_start)
     # ponytail: only same-line prose is recognized, revisit when relationships
     # commonly use multi-line tables or definition lists.
-    return LINK_ONLY_LINE_RE.fullmatch(markdown[line_start:line_end]) is not None
+    return prose_lines
 
 
 def collect_semantic_relationships(
@@ -70,8 +91,11 @@ def collect_semantic_relationships(
         markdown = semantic_markdown(
             path.read_text(encoding="utf-8", errors="replace")
         )
-        for raw_target, target_start, _ in iter_inline_links(markdown):
-            if _is_link_only_line(markdown, target_start):
+        links = list(iter_inline_links_with_spans(markdown))
+        prose_lines = _relationship_prose_lines(markdown, links)
+        for raw_target, target_start, _, _, _ in links:
+            line_start = markdown.rfind("\n", 0, target_start) + 1
+            if line_start not in prose_lines:
                 continue
             target = relative_link_target(raw_target)
             if target is None:

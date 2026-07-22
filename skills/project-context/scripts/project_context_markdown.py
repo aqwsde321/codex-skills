@@ -436,8 +436,8 @@ def _line_in_fence_container(
     return indent >= content_indent
 
 
-def iter_inline_links(markdown: str):
-    """Yield destination text and source spans, excluding images and code/comments."""
+def iter_inline_links_with_spans(markdown: str):
+    """Yield destinations plus target and complete-link spans."""
     index = 0
     fence: tuple[str, int, tuple[str, int, int]] | None = None
     indented_code_cache: dict[int, bool] = {}
@@ -492,6 +492,7 @@ def iter_inline_links(markdown: str):
             line_start = index > 0 and markdown[index - 1] == "\n"
             continue
         if markdown[index] == "[" and not _is_escaped(markdown, index):
+            link_start = index
             image = index > 0 and markdown[index - 1] == "!" and not _is_escaped(markdown, index - 1)
             close = _closing_bracket(markdown, index)
             if close is not None and close + 1 < len(markdown) and markdown[close + 1] == "(":
@@ -502,11 +503,19 @@ def iter_inline_links(markdown: str):
                 if parsed is not None:
                     target, index, target_start, target_end = parsed
                     if target and not image:
-                        yield target, target_start, target_end
+                        yield target, target_start, target_end, link_start, index
                     line_start = index > 0 and markdown[index - 1] == "\n"
                     continue
         line_start = markdown[index] == "\n"
         index += 1
+
+
+def iter_inline_links(markdown: str):
+    """Yield destination text and source spans, excluding images and code/comments."""
+    for target, target_start, target_end, _, _ in iter_inline_links_with_spans(
+        markdown
+    ):
+        yield target, target_start, target_end
 
 
 def iter_inline_link_targets(markdown: str):

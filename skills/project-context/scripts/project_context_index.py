@@ -23,10 +23,15 @@ CONCEPT_FIELD_LIMITS = {
 }
 AREA_TITLES = {
     "architecture": "아키텍처",
+    "domain": "도메인",
     "domains": "도메인",
+    "integration": "연동",
     "integrations": "연동",
+    "operation": "운영",
     "operations": "운영",
+    "test": "테스트",
     "testing": "테스트",
+    "workflow": "워크플로",
     "workflows": "워크플로",
 }
 
@@ -388,9 +393,10 @@ def area_title(area: str) -> str:
 
 def new_area_index_markdown(area: str) -> str:
     title = area_title(area)
+    area_label = title if title.endswith("영역") else f"{title} 영역"
     return f"""---
 title: {title}
-description: {title} 영역의 프로젝트 컨텍스트
+description: {area_label}의 프로젝트 컨텍스트
 read_when: {title} 관련 코드를 조사하거나 변경할 때
 generated_by: {AREA_INDEX_GENERATOR}
 ---
