@@ -27,8 +27,10 @@ from project_context_index import (  # noqa: E402
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
 from project_context_safety import (  # noqa: E402
+    canonical_commit_oid,
     context_tree_symlinks,
     require_git_repository,
+    resolve_commit_oid,
     symlink_parent,
 )
 from project_context_structure import (  # noqa: E402
@@ -42,19 +44,18 @@ DEFAULT_DOC = "docs/project-context.md"
 DEFAULT_DOC_DIR = "docs/project-context"
 DEFAULT_METADATA = "docs/project-context/.metadata.json"
 TEMP_PLAN = "docs/project-context/_plan.md"
-CURRENT_GENERATOR_VERSION = "20"
+CURRENT_GENERATOR_VERSION = "21"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
 MAX_INITIAL_DOCS = 8
 SMALL_REPO_SOURCE_FILE_LIMIT = 10
 SMALL_REPO_DOC_LIMIT = 3
 MIN_SUBPAGE_BODY_CHARS = 500
 MIN_SINGLE_FILE_SECTION_CHARS = 1500
-SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
-COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+COMMIT_HASH_RE = re.compile(r"\b[0-9a-f]{7,64}\b")
 HOST_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w:/.-])(?:/[Uu]sers|/home|/private|/var/folders)/[^\s)`>]+")
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 AWS_ACCESS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
@@ -163,12 +164,8 @@ def git_output(root: Path, args: list[str]) -> str | None:
     return result.stdout.strip() or None
 
 
-def git_commit_exists(root: Path, ref: str) -> bool:
-    return git_resolve_commit(root, ref) is not None
-
-
 def git_resolve_commit(root: Path, ref: str) -> str | None:
-    return git_output(root, ["rev-parse", "--verify", f"{ref}^{{commit}}"])
+    return resolve_commit_oid(root, ref)
 
 
 def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
@@ -428,14 +425,17 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
         if mode not in {"single-page", "multi-page"}:
             errors.append(f"{doc_rel}: missing metadata: mode single-page|multi-page")
 
-    source_commit_match = SOURCE_COMMIT_RE.search(markdown)
-    if require_metadata and not source_commit_match:
+    source_commit = frontmatter.get("source_commit", "").strip()
+    if require_metadata and not source_commit:
         errors.append(f"{doc_rel}: missing metadata: source_commit")
-    if source_commit_match:
-        source_commit = source_commit_match.group(1)
+    if source_commit:
         resolved_commit = git_resolve_commit(root, source_commit)
         if not resolved_commit:
             errors.append(f"{doc_rel}: source_commit does not exist in git: {source_commit}")
+        elif canonical_commit_oid(root, source_commit) is None:
+            errors.append(
+                f"{doc_rel}: source_commit must be a canonical full commit ID: {source_commit}"
+            )
 
     evidence_section = extract_evidence_section(markdown)
     if not evidence_section:
@@ -518,6 +518,10 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
     generator_version = metadata.get("generator_version")
     if not isinstance(generator_version, str) or not generator_version.strip():
         errors.append(f"{DEFAULT_METADATA}: missing generator_version")
+    elif generator_version != CURRENT_GENERATOR_VERSION:
+        errors.append(
+            f"{DEFAULT_METADATA}: generator_version must be {CURRENT_GENERATOR_VERSION}"
+        )
     updated_at = metadata.get("updated_at")
     if not isinstance(updated_at, str) or not PROJECT_CONTEXT_TIMESTAMP_RE.match(updated_at):
         errors.append(f"{DEFAULT_METADATA}: updated_at must be a UTC millisecond timestamp")
@@ -537,6 +541,10 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         resolved_source_commit = git_resolve_commit(root, source_commit_ref.strip())
         if not resolved_source_commit:
             errors.append(f"{DEFAULT_METADATA}: source_commit does not exist in git: {source_commit_ref.strip()}")
+        elif canonical_commit_oid(root, source_commit_ref) is None:
+            errors.append(
+                f"{DEFAULT_METADATA}: source_commit must be a canonical full commit ID"
+            )
 
     source_commit_short = metadata.get("source_commit_short")
     if not isinstance(source_commit_short, str) or not source_commit_short.strip():
@@ -562,6 +570,10 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
         resolved_reviewed_commit = git_resolve_commit(root, reviewed_commit_ref.strip())
         if not resolved_reviewed_commit:
             errors.append(f"{DEFAULT_METADATA}: reviewed_commit does not exist in git: {reviewed_commit_ref.strip()}")
+        elif canonical_commit_oid(root, reviewed_commit_ref) is None:
+            errors.append(
+                f"{DEFAULT_METADATA}: reviewed_commit must be a canonical full commit ID"
+            )
         elif resolved_source_commit and (
             not git_commit_is_ancestor(root, resolved_source_commit, resolved_reviewed_commit)
             or not git_commit_is_ancestor(root, resolved_reviewed_commit, "HEAD")
@@ -573,9 +585,8 @@ def validate_metadata(root: Path, docs: list[str], primary_doc: str) -> tuple[li
     primary_path = root / primary_doc
     if resolved_source_commit and primary_path.is_file() and not primary_path.is_symlink():
         primary_markdown = primary_path.read_text(encoding="utf-8", errors="replace")
-        source_commit_match = SOURCE_COMMIT_RE.search(primary_markdown)
-        if source_commit_match:
-            doc_source_commit = source_commit_match.group(1)
+        doc_source_commit = parse_frontmatter(primary_markdown).get("source_commit", "").strip()
+        if doc_source_commit:
             resolved_doc_source_commit = git_resolve_commit(root, doc_source_commit)
             if resolved_doc_source_commit and resolved_doc_source_commit != resolved_source_commit:
                 errors.append(
@@ -723,7 +734,7 @@ def validate_primary_size(root: Path, doc_rel: str) -> tuple[list[str], list[str
                 f"keep the router at or below {MAX_MULTI_PAGE_PRIMARY_BODY_CHARS}"
             )
         elif issue["code"] == "single-page-primary-too-large":
-            warnings.append(
+            errors.append(
                 f"{doc_rel}: single-page body has {issue['body_chars']} characters; "
                 f"split into indexed supporting pages above {MAX_SINGLE_PAGE_BODY_CHARS}"
             )

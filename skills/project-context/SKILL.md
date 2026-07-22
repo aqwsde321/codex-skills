@@ -170,7 +170,7 @@ python3 <skill-dir>/scripts/project_context_update.py write-plan .
 ```yaml
 ---
 generated_by: project-context
-source_commit: <git short sha>
+source_commit: <git canonical full object id>
 updated_at: <ISO-8601 UTC>
 mode: single-page
 ---
@@ -239,7 +239,7 @@ metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기
 - mode와 실제 문서 수 일치
 - multi-page 하위 문서의 `title`, `description`, `read_when` metadata 완전
 - generated index가 하위 문서 metadata와 정확히 일치
-- multi-page primary body 4,000자 이하. single-page body가 8,000자를 넘으면 validator가 warning만 내더라도 구조 검토를 완료한 것으로 보지 않음
+- multi-page primary body 4,000자 이하. single-page body 8,000자 이하
 - 모든 source link가 repo 내부 실제 경로를 가리킴
 - 모든 문서에 `## 근거`와 외부 source evidence 존재
 - index↔하위 문서 링크 완전
@@ -248,7 +248,7 @@ metadata는 `docs/project-context/.metadata.json`에 다음 독립 필드를 기
 - host absolute path와 secret-looking 값 없음
 - top-level agent 안내가 하나의 current marker section
 
-validator가 exit 0을 반환하고 blocking warning이 해소될 때까지 원인을 수정한 뒤 검증을 다시 실행한다. 두 조건을 충족하기 전에는 완료 보고하지 않는다.
+validator가 exit 0을 반환할 때까지 원인을 수정한 뒤 검증을 다시 실행한다. warning은 보고하되 완료를 막지 않는다.
 
 ## 완료 보고
 

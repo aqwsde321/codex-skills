@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -60,7 +61,7 @@ class ProjectContextTest(unittest.TestCase):
         )
 
     def write_context(self):
-        source_commit = self.git("rev-parse", "--short", "HEAD")
+        source_commit = self.git("rev-parse", "HEAD")
         context = self.root / "docs" / "project-context.md"
         context.parent.mkdir(parents=True, exist_ok=True)
         context.write_text(
@@ -120,7 +121,7 @@ Python으로 실행한다.
         return context
 
     def write_multi_context(self):
-        source_commit = self.git("rev-parse", "--short", "HEAD")
+        source_commit = self.git("rev-parse", "HEAD")
         context = self.root / "docs" / "project-context.md"
         context_dir = self.root / "docs" / "project-context"
         context_dir.mkdir(parents=True, exist_ok=True)
@@ -438,7 +439,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertTrue(result["review_only"])
         self.assertEqual(persisted["reviewed_commit"], self.git("rev-parse", "HEAD"))
-        self.assertEqual(persisted["generator_version"], "20")
+        self.assertEqual(
+            persisted["generator_version"], project_context_update.GENERATOR_VERSION
+        )
         self.assertEqual(code, 0, (messages, warnings))
 
     def test_invalid_reviewed_commit_fails_validation_and_planner_falls_back(self):
@@ -527,7 +530,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertEqual(plan["previous_commit_source"], "docs/project-context.md")
-        self.assertEqual(plan["previous_commit"], self.git("rev-parse", "--short", "HEAD"))
+        self.assertEqual(plan["previous_commit"], self.git("rev-parse", "HEAD"))
 
     def test_reverted_committed_source_change_advances_reviewed_commit(self):
         self.write_context()
@@ -635,6 +638,165 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.assertEqual(code, 0, (messages, warnings))
 
+    def test_document_source_commit_requires_canonical_full_oid(self):
+        context = self.write_context()
+        original = context.read_text(encoding="utf-8")
+        full_head = self.git("rev-parse", "HEAD")
+        short_head = self.git("rev-parse", "--short", "HEAD")
+        branch = self.git("branch", "--show-current")
+        self.git("tag", "fixture-tag")
+
+        for mutable_ref in ("HEAD", branch, "fixture-tag", short_head):
+            with self.subTest(source_commit=mutable_ref):
+                context.write_text(
+                    original.replace(
+                        f"source_commit: {full_head}",
+                        f"source_commit: {mutable_ref}",
+                    ),
+                    encoding="utf-8",
+                )
+                errors, _ = validate_project_context.validate_doc(
+                    self.root,
+                    validate_project_context.DEFAULT_DOC,
+                    require_metadata=True,
+                )
+                self.assertTrue(
+                    any("canonical full commit ID" in error for error in errors),
+                    errors,
+                )
+
+    def test_canonical_commit_supports_sha256_repositories(self):
+        sha256_root = self.root.parent / "sha256-repo"
+        completed = subprocess.run(
+            ["git", "init", "--object-format=sha256", str(sha256_root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            self.skipTest("installed Git does not support SHA-256 repositories")
+        subprocess.run(
+            ["git", "config", "user.name", "Codex"],
+            cwd=sha256_root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "codex@example.invalid"],
+            cwd=sha256_root,
+            check=True,
+        )
+        (sha256_root / "README.md").write_text("# SHA-256\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=sha256_root, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "init sha256 fixture"],
+            cwd=sha256_root,
+            check=True,
+            capture_output=True,
+        )
+        full_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=sha256_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        self.assertEqual(len(full_head), 64)
+        self.assertEqual(
+            project_context_update.canonical_commit_oid(sha256_root, full_head),
+            full_head,
+        )
+        self.assertIsNone(
+            project_context_update.canonical_commit_oid(sha256_root, full_head[:12])
+        )
+
+    def test_body_source_commit_is_not_a_document_baseline(self):
+        context = self.write_context()
+        full_head = self.git("rev-parse", "HEAD")
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                f"source_commit: {full_head}\n", ""
+            )
+            + f"\n```yaml\nsource_commit: {full_head}\n```\n",
+            encoding="utf-8",
+        )
+        self.git("add", "AGENTS.md", "docs")
+        self.git("commit", "-m", "docs without baseline")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+        errors, _ = validate_project_context.validate_doc(
+            self.root,
+            validate_project_context.DEFAULT_DOC,
+            require_metadata=True,
+        )
+
+        self.assertIsNone(
+            project_context_update.read_source_commit_from_doc(
+                self.root, project_context_update.DEFAULT_DOC
+            )
+        )
+        self.assertIn("review-recent-history", plan["required_actions"])
+        self.assertTrue(any("missing metadata: source_commit" in error for error in errors))
+
+    def test_metadata_commit_baselines_require_canonical_full_oids(self):
+        self.write_context()
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["source_commit"] = "HEAD"
+        metadata["reviewed_commit"] = "HEAD"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("source_commit must be a canonical full commit ID" in message for message in messages)
+        )
+        self.assertTrue(
+            any("reviewed_commit must be a canonical full commit ID" in message for message in messages)
+        )
+
+    def test_generator_version_mismatch_fails_validation(self):
+        self.write_context()
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["generator_version"] = str(
+            int(project_context_update.GENERATOR_VERSION) - 1
+        )
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("generator_version must be" in message for message in messages)
+        )
+
+    def test_atomic_metadata_write_preserves_previous_file_on_replace_failure(self):
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text("old metadata\n", encoding="utf-8")
+        safety_os = project_context_update.atomic_write_text.__globals__["os"]
+
+        with mock.patch.object(safety_os, "replace", side_effect=OSError("failed")):
+            with self.assertRaisesRegex(OSError, "failed"):
+                project_context_update.atomic_write_text(
+                    metadata_path, "new metadata\n"
+                )
+
+        self.assertEqual(metadata_path.read_text(encoding="utf-8"), "old metadata\n")
+        self.assertEqual(list(metadata_path.parent.glob(".metadata.json.*.tmp")), [])
+
     def test_only_v18_missing_reviewed_commit_is_a_legacy_warning(self):
         self.write_context()
         self.record()
@@ -661,7 +823,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
             self.root, validate_project_context.DEFAULT_DOC
         )
 
-        self.assertEqual(legacy_code, 0, legacy_messages)
+        self.assertEqual(legacy_code, 1, legacy_messages)
+        self.assertTrue(
+            any("generator_version must be" in message for message in legacy_messages)
+        )
         self.assertTrue(any("missing reviewed_commit" in warning for warning in legacy_warnings))
         self.assertEqual(null_code, 1)
         self.assertTrue(any("must be a non-empty string" in message for message in null_messages))
@@ -939,8 +1104,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
             self.root, validate_project_context.DEFAULT_DOC
         )
 
-        self.assertEqual(single_errors, [])
-        self.assertTrue(any("split into indexed supporting pages" in warning for warning in single_warnings))
+        self.assertTrue(
+            any("split into indexed supporting pages" in error for error in single_errors)
+        )
+        self.assertEqual(single_warnings, [])
         self.assertTrue(any("keep the router" in error for error in multi_errors))
         self.assertEqual(multi_warnings, [])
 
@@ -1111,7 +1278,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertIsNone(plan["last_update_metadata"])
         self.assertEqual(plan["previous_commit_source"], "docs/project-context.md")
-        self.assertEqual(plan["previous_commit"], self.git("rev-parse", "--short", "HEAD"))
+        self.assertEqual(plan["previous_commit"], self.git("rev-parse", "HEAD"))
 
     def test_metadata_and_document_source_commits_must_match(self):
         self.write_context()

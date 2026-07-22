@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -29,6 +30,25 @@ def require_git_repository(root: Path) -> None:
     if Path(top_level).resolve() != root.resolve():
         raise ValueError(f"repo root must be the Git top-level directory: {top_level}")
     run_git_bytes(root, ["rev-parse", "--verify", "HEAD^{commit}"])
+
+
+def resolve_commit_oid(root: Path, ref: str) -> str | None:
+    try:
+        output = run_git_bytes(
+            root, ["rev-parse", "--verify", f"{ref.strip()}^{{commit}}"]
+        )
+    except ValueError:
+        return None
+    resolved = os.fsdecode(output.rstrip(b"\r\n"))
+    return resolved or None
+
+
+def canonical_commit_oid(root: Path, ref: str) -> str | None:
+    candidate = ref.strip()
+    resolved = resolve_commit_oid(root, candidate)
+    if resolved is None or candidate.casefold() != resolved.casefold():
+        return None
+    return resolved
 
 
 def require_expected_path(label: str, actual: str, expected: str) -> None:
@@ -69,3 +89,22 @@ def context_tree_symlinks(root: Path, rel_dir: str) -> list[str]:
         for path in directory.rglob("*")
         if path.is_symlink()
     )
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise

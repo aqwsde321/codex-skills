@@ -24,10 +24,13 @@ from project_context_index import (  # noqa: E402
 )
 from project_context_markdown import iter_inline_link_targets  # noqa: E402
 from project_context_safety import (  # noqa: E402
+    atomic_write_text,
+    canonical_commit_oid,
     context_tree_symlinks,
     require_expected_path,
     require_git_repository,
     require_regular_file_or_missing,
+    resolve_commit_oid,
     run_git_bytes,
     symlink_parent,
 )
@@ -42,11 +45,10 @@ DEFAULT_METADATA = "docs/project-context/.metadata.json"
 DEFAULT_TEMP_PLAN = "docs/project-context/_plan.md"
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, DEFAULT_TEMP_PLAN}
 GENERATOR = "project-context"
-GENERATOR_VERSION = "20"
+GENERATOR_VERSION = "21"
 PLAN_SENTINEL = "# Project Context Draft Plan"
 AGENT_START_MARKER = "<!-- project-context:start -->"
 AGENT_END_MARKER = "<!-- project-context:end -->"
-SOURCE_COMMIT_RE = re.compile(r"^source_commit:\s*([A-Za-z0-9._/-]+)\s*$", re.MULTILINE)
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 HIGH_SIGNAL_PATHS = {
     "AGENTS.md",
@@ -135,18 +137,6 @@ def git_head(root: Path) -> tuple[str | None, str | None]:
     full = git_output(root, ["rev-parse", "HEAD"])
     short = git_output(root, ["rev-parse", "--short", "HEAD"])
     return full, short
-
-
-def git_commit_exists(root: Path, ref: str) -> bool:
-    result = subprocess.run(
-        ["git", "--no-pager", "rev-parse", "--verify", f"{ref}^{{commit}}"],
-        cwd=root,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    return result.returncode == 0
 
 
 def git_commit_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
@@ -268,9 +258,8 @@ def read_source_commit_from_doc(root: Path, doc_rel: str) -> str | None:
     doc_path = root / doc_rel
     if doc_path.is_symlink() or not doc_path.is_file():
         return None
-    markdown = read_text(doc_path)
-    match = SOURCE_COMMIT_RE.search(markdown)
-    return match.group(1) if match else None
+    source_commit = parse_frontmatter(read_text(doc_path)).get("source_commit")
+    return source_commit.strip() if source_commit else None
 
 
 def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[str | None, str | None, str]:
@@ -280,18 +269,14 @@ def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[
         if metadata and is_structured_update_metadata(metadata):
             source_commit = metadata.get("source_commit")
             valid_source_commit = (
-                source_commit.strip()
+                canonical_commit_oid(root, source_commit)
                 if isinstance(source_commit, str)
-                and source_commit.strip()
-                and git_commit_exists(root, source_commit.strip())
                 else None
             )
             reviewed_commit = metadata.get("reviewed_commit")
             valid_reviewed_commit = (
-                reviewed_commit.strip()
+                canonical_commit_oid(root, reviewed_commit)
                 if isinstance(reviewed_commit, str)
-                and reviewed_commit.strip()
-                and git_commit_exists(root, reviewed_commit.strip())
                 else None
             )
             if (
@@ -305,8 +290,11 @@ def load_previous_context(root: Path, doc_rel: str, metadata_rel: str) -> tuple[
                 return valid_source_commit, None, f"{metadata_rel}#source_commit"
             metadata_updated_at = metadata["updated_at"].strip()
     source_commit = read_source_commit_from_doc(root, doc_rel)
-    if source_commit and git_commit_exists(root, source_commit):
-        return source_commit, None, doc_rel
+    valid_document_source_commit = (
+        canonical_commit_oid(root, source_commit) if source_commit else None
+    )
+    if valid_document_source_commit:
+        return valid_document_source_commit, None, doc_rel
     if metadata_updated_at:
         return None, metadata_updated_at, metadata_rel
     return None, None, "none"
@@ -773,6 +761,13 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     else:
         recommended_action = "no-op"
     required_actions = [recommended_action]
+    if (
+        (root / doc_rel).exists()
+        and not has_previous_context
+        and since_changes
+        and "review-recent-history" not in required_actions
+    ):
+        required_actions.append("review-recent-history")
     if structure_issues and recommended_action != "review-document-structure":
         required_actions.append("review-document-structure")
     plan = {
@@ -1161,36 +1156,35 @@ def record_metadata(
     )
     previous_source_commit = previous_metadata.get("source_commit")
     valid_previous_source_commit = (
-        previous_source_commit.strip()
+        canonical_commit_oid(root, previous_source_commit)
         if isinstance(previous_source_commit, str)
-        and previous_source_commit.strip()
-        and git_commit_exists(root, previous_source_commit.strip())
         else None
     )
     document_source_ref = read_source_commit_from_doc(root, doc_rel)
     valid_document_source_commit = (
-        git_output(root, ["rev-parse", document_source_ref])
-        if document_source_ref and git_commit_exists(root, document_source_ref)
+        canonical_commit_oid(root, document_source_ref)
+        if document_source_ref
         else None
     )
     review_source_commit = valid_document_source_commit or valid_previous_source_commit
     previous_reviewed_commit = previous_metadata.get("reviewed_commit")
-    valid_previous_reviewed_commit = (
-        previous_reviewed_commit.strip()
+    canonical_previous_reviewed_commit = (
+        canonical_commit_oid(root, previous_reviewed_commit)
         if isinstance(previous_reviewed_commit, str)
-        and previous_reviewed_commit.strip()
+        else None
+    )
+    valid_previous_reviewed_commit = (
+        canonical_previous_reviewed_commit
+        if canonical_previous_reviewed_commit
         and review_source_commit
-        and git_commit_exists(root, previous_reviewed_commit.strip())
-        and git_commit_is_ancestor(root, review_source_commit, previous_reviewed_commit.strip())
-        and git_commit_is_ancestor(root, previous_reviewed_commit.strip(), "HEAD")
+        and git_commit_is_ancestor(root, review_source_commit, canonical_previous_reviewed_commit)
+        and git_commit_is_ancestor(root, canonical_previous_reviewed_commit, "HEAD")
         else None
     )
     previous_source_commit_short = previous_metadata.get("source_commit_short")
     resolved_previous_source_commit_short = (
-        git_output(root, ["rev-parse", previous_source_commit_short.strip()])
+        resolve_commit_oid(root, previous_source_commit_short)
         if isinstance(previous_source_commit_short, str)
-        and previous_source_commit_short.strip()
-        and git_commit_exists(root, previous_source_commit_short.strip())
         else None
     )
     source_metadata_needs_repair = bool(valid_document_source_commit) and (
@@ -1270,8 +1264,7 @@ def record_metadata(
         "content_hash": content_hash,
     }
     metadata_path = root / metadata_rel
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata_path.write_text(f"{safe_json_dumps(metadata)}\n", encoding="utf-8")
+    atomic_write_text(metadata_path, f"{safe_json_dumps(metadata)}\n")
     return {**metadata, "review_only": True} if docs_unchanged else metadata
 
 
