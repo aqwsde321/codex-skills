@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import string
+from pathlib import PurePosixPath
 from urllib.parse import unquote
 
 
@@ -38,6 +39,23 @@ def relative_link_target(target: str) -> str | None:
     if not cleaned or is_external_link_target(target) or cleaned.startswith("/"):
         return None
     return cleaned
+
+
+def repo_relative_link_path(doc_rel: str, target: str) -> str | None:
+    cleaned = relative_link_target(target)
+    if cleaned is None:
+        return None
+    parts: list[str] = []
+    for part in (*PurePosixPath(doc_rel).parent.parts, *PurePosixPath(cleaned).parts):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(part)
+    return PurePosixPath(*parts).as_posix() if parts else None
 
 
 def _is_escaped(text: str, index: int) -> bool:

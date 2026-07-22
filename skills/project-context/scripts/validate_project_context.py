@@ -48,6 +48,7 @@ from project_context_markdown import (  # noqa: E402
     is_external_link_target as is_external_target,
     iter_clean_link_targets as iter_markdown_links,
     iter_relative_link_targets as iter_relative_links,
+    repo_relative_link_path,
 )
 from project_context_graph import (  # noqa: E402
     collect_semantic_relationships,
@@ -56,6 +57,7 @@ from project_context_graph import (  # noqa: E402
 from project_context_safety import (  # noqa: E402
     canonical_commit_oid,
     context_tree_symlinks,
+    git_path_exists_at_commit,
     is_utc_millisecond_timestamp,
     require_git_repository,
     require_paths_not_ignored,
@@ -151,10 +153,8 @@ def collect_doc_sources(root: Path, docs: list[str]) -> dict[str, list[str]]:
         sources: list[str] = []
         markdown = doc_path.read_text(encoding="utf-8", errors="replace")
         for link in iter_relative_links(markdown):
-            target_path = (doc_path.parent / link).resolve()
-            try:
-                rel = target_path.relative_to(root).as_posix()
-            except ValueError:
+            rel = repo_relative_link_path(doc, link)
+            if rel is None:
                 continue
             if is_context_doc_rel(rel) or rel in sources:
                 continue
@@ -357,21 +357,20 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
 
     broken_links: list[str] = []
     evidence_source_links: list[str] = []
-    doc_dir = doc_path.parent
     for link in links:
-        target_path = (doc_dir / link).resolve()
-        try:
-            target_path.relative_to(root)
-        except ValueError:
+        rel = repo_relative_link_path(doc_rel, link)
+        if rel is None:
             broken_links.append(f"{link} -> outside repo")
             continue
-        if not target_path.exists():
+        if is_context_doc_rel(rel):
+            link_exists = (root / rel).exists()
+        else:
+            link_exists = git_path_exists_at_commit(root, "HEAD", rel)
+        if not link_exists:
             broken_links.append(link)
             continue
-        if link in evidence_links:
-            rel = target_path.relative_to(root).as_posix()
-            if not is_context_doc_rel(rel):
-                evidence_source_links.append(rel)
+        if link in evidence_links and not is_context_doc_rel(rel):
+            evidence_source_links.append(rel)
 
     for link in broken_links:
         errors.append(f"{doc_rel}: broken link: {link}")
@@ -626,11 +625,9 @@ def validate_index_links(root: Path, doc_rel: str, docs: list[str]) -> tuple[lis
         markdown = owner_path.read_text(encoding="utf-8", errors="replace")
         linked_targets = set()
         for link in iter_relative_links(markdown):
-            target_path = (owner_path.parent / link).resolve()
-            try:
-                linked_targets.add(target_path.relative_to(root).as_posix())
-            except ValueError:
-                continue
+            target = repo_relative_link_path(owner, link)
+            if target is not None:
+                linked_targets.add(target)
         for target in targets:
             if target not in linked_targets:
                 errors.append(f"{owner}: missing index link to context page: {target}")

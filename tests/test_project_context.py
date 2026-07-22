@@ -444,7 +444,36 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(code, 1)
         self.assertTrue(any("broken link: ../missing.py" in message for message in messages))
 
-    def test_untracked_files_are_not_collapsed_to_directories(self):
+    def test_validator_uses_head_for_source_link_existence(self):
+        self.write_context()
+        self.record()
+        (self.root / "app.py").unlink()
+
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 0, (messages, warnings))
+
+    def test_validator_rejects_untracked_worktree_source_link(self):
+        context = self.write_context()
+        (self.root / "new.py").write_text("print('untracked')\n", encoding="utf-8")
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "[Entrypoint](../app.py)", "[Entrypoint](../new.py)"
+            ),
+            encoding="utf-8",
+        )
+        self.record()
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("broken link: ../new.py" in message for message in messages))
+
+    def test_untracked_worktree_sources_are_ignored_without_collapsing_paths(self):
         self.write_context()
         new_source = self.root / "src" / "new.py"
         new_source.parent.mkdir()
@@ -456,8 +485,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
             project_context_update.DEFAULT_METADATA,
         )
 
-        self.assertIn("src/new.py", plan["source_change_paths"])
+        self.assertNotIn("src/new.py", plan["source_change_paths"])
         self.assertNotIn("src/", plan["source_change_paths"])
+        self.assertIn("src/new.py", plan["ignored_worktree_source_paths"])
         self.assertIn(
             "docs/project-context.md", plan["generated_context_doc_changes"]
         )
@@ -516,6 +546,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
             before_hash,
         )
         (self.root / "app.py").write_text("print('changed')\n", encoding="utf-8")
+        self.git("add", "app.py")
+        self.git("commit", "-m", "change committed source")
         plan = project_context_update.build_plan(
             self.root,
             project_context_update.DEFAULT_DOC,
@@ -579,7 +611,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(plan["recommended_action"], "no-op")
         self.assertEqual(code, 0, (messages, warnings))
 
-    def test_dirty_source_is_not_approved_by_reviewed_commit(self):
+    def test_dirty_source_is_ignored_by_committed_plan(self):
         self.write_context()
         initial_metadata = self.record()
         before_hash = project_context_update.docs_content_hash(
@@ -613,9 +645,31 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(
             persisted["reviewed_commit"], initial_metadata["reviewed_commit"]
         )
-        self.assertEqual(plan["affected_docs"], {"docs/project-context.md": ["app.py"]})
+        self.assertEqual(plan["affected_docs"], {})
+        self.assertEqual(plan["source_change_paths"], [])
+        self.assertEqual(plan["ignored_worktree_source_paths"], ["app.py"])
 
-    def test_record_rejects_fresh_snapshot_after_document_change_with_dirty_source(self):
+    def test_plan_uses_all_committed_changes_but_ignores_worktree_overlay(self):
+        self.write_context()
+        self.record_and_commit_context("docs: add project context")
+        (self.root / "app.py").write_text("print('committed')\n", encoding="utf-8")
+        self.git("add", "app.py")
+        self.git("commit", "-m", "change committed behavior")
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertEqual(plan["source_change_paths"], ["app.py"])
+        self.assertEqual(
+            plan["affected_docs"], {"docs/project-context.md": ["app.py"]}
+        )
+        self.assertEqual(plan["ignored_worktree_source_paths"], ["app.py"])
+
+    def test_record_allows_changed_docs_while_ignoring_dirty_source(self):
         context = self.write_context()
         self.record()
         metadata_path = self.root / project_context_update.DEFAULT_METADATA
@@ -634,19 +688,26 @@ read_when: 실행 흐름 변경 또는 동작 검증
             ),
         )
 
-        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
-            project_context_update.record_metadata(
-                self.root,
-                project_context_update.DEFAULT_DOC,
-                project_context_update.DEFAULT_METADATA,
-                "update",
-                True,
-                fresh_hash,
-            )
+        result = project_context_update.record_metadata(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            fresh_hash,
+        )
+        persisted = json.loads(metadata_path.read_text(encoding="utf-8"))
+        code, messages, warnings = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
 
-        self.assertEqual(metadata_path.read_bytes(), original_metadata)
+        self.assertNotEqual(metadata_path.read_bytes(), original_metadata)
+        self.assertEqual(result["source_commit"], self.git("rev-parse", "HEAD"))
+        self.assertEqual(persisted["reviewed_commit"], self.git("rev-parse", "HEAD"))
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
+        self.assertEqual(code, 0, (messages, warnings))
 
-    def test_finalize_rejects_changed_docs_while_source_worktree_is_dirty(self):
+    def test_finalize_allows_changed_docs_while_ignoring_dirty_source(self):
         context = self.write_context()
         self.record_and_commit_context("docs: add project context")
         before_hash = project_context_update.docs_content_hash(
@@ -656,8 +717,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
             ),
         )
         metadata_path = self.root / project_context_update.DEFAULT_METADATA
-        metadata_before = metadata_path.read_bytes()
-        previous_source_commit = json.loads(metadata_before)["source_commit"]
+        previous_source_commit = json.loads(
+            metadata_path.read_text(encoding="utf-8")
+        )["source_commit"]
         current_head = self.git("rev-parse", "HEAD")
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
         context.write_text(
@@ -668,24 +730,26 @@ read_when: 실행 흐름 변경 또는 동작 검증
             )
             .replace(
                 "프로그램이 인사 문구를 출력한다.",
-                "프로그램이 dirty 문구를 출력한다.",
+                "프로그램 실행 흐름을 명시한다.",
             ),
             encoding="utf-8",
         )
 
-        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
-            project_context_update.finalize_context(
-                self.root,
-                project_context_update.DEFAULT_DOC,
-                project_context_update.DEFAULT_METADATA,
-                "update",
-                True,
-                before_hash,
-            )
+        result = project_context_update.finalize_context(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            before_hash,
+        )
+        persisted = json.loads(metadata_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(metadata_path.read_bytes(), metadata_before)
+        self.assertTrue(result["finalized"])
+        self.assertEqual(persisted["source_commit"], current_head)
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
 
-    def test_metadata_less_finalize_rejects_fresh_snapshot_with_dirty_source(self):
+    def test_metadata_less_finalize_uses_head_while_source_is_dirty(self):
         self.write_context()
         metadata_path = self.root / project_context_update.DEFAULT_METADATA
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
@@ -696,17 +760,19 @@ read_when: 실행 흐름 변경 또는 동작 검증
             ),
         )
 
-        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
-            project_context_update.finalize_context(
-                self.root,
-                project_context_update.DEFAULT_DOC,
-                project_context_update.DEFAULT_METADATA,
-                "init",
-                True,
-                fresh_hash,
-            )
+        result = project_context_update.finalize_context(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "init",
+            True,
+            fresh_hash,
+        )
+        persisted = json.loads(metadata_path.read_text(encoding="utf-8"))
 
-        self.assertFalse(metadata_path.exists())
+        self.assertTrue(result["finalized"])
+        self.assertEqual(persisted["source_commit"], self.git("rev-parse", "HEAD"))
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
 
     def test_finalize_rejects_project_context_documents_ignored_by_git(self):
         (self.root / ".gitignore").write_text("docs/\n", encoding="utf-8")
@@ -772,7 +838,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
             (self.root / project_context_update.DEFAULT_METADATA).exists()
         )
 
-    def test_record_cli_rejects_changed_docs_while_source_worktree_is_dirty(self):
+    def test_record_cli_uses_head_while_source_worktree_is_dirty(self):
         context = self.write_context()
         self.record_and_commit_context("docs: add project context")
         before_hash = project_context_update.docs_content_hash(
@@ -782,8 +848,9 @@ read_when: 실행 흐름 변경 또는 동작 검증
             ),
         )
         metadata_path = self.root / project_context_update.DEFAULT_METADATA
-        metadata_before = metadata_path.read_bytes()
-        previous_source_commit = json.loads(metadata_before)["source_commit"]
+        previous_source_commit = json.loads(
+            metadata_path.read_text(encoding="utf-8")
+        )["source_commit"]
         current_head = self.git("rev-parse", "HEAD")
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
         context.write_text(
@@ -794,7 +861,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
             )
             .replace(
                 "프로그램이 인사 문구를 출력한다.",
-                "프로그램이 dirty 문구를 출력한다.",
+                "프로그램 실행 흐름을 명시한다.",
             ),
             encoding="utf-8",
         )
@@ -810,11 +877,12 @@ read_when: 실행 흐름 변경 또는 동작 검증
             before_hash,
         )
 
-        self.assertEqual(completed.returncode, 1)
-        self.assertIn("dirty source worktree changes", completed.stderr)
-        self.assertEqual(metadata_path.read_bytes(), metadata_before)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        persisted = json.loads(metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["source_commit"], current_head)
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
 
-    def test_write_plan_rejects_dirty_source_without_creating_plan(self):
+    def test_write_plan_reports_ignored_dirty_source_without_using_it(self):
         self.write_context()
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
 
@@ -822,11 +890,14 @@ read_when: 실행 흐름 변경 또는 동작 검증
             "project_context_update.py",
             "write-plan",
             self.root,
+            "--json",
         )
 
-        self.assertEqual(completed.returncode, 1)
-        self.assertIn("dirty source worktree changes", completed.stderr)
-        self.assertFalse((self.root / project_context_update.DEFAULT_TEMP_PLAN).exists())
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["source_change_paths"], [])
+        self.assertEqual(payload["ignored_worktree_source_paths"], ["app.py"])
+        self.assertTrue((self.root / project_context_update.DEFAULT_TEMP_PLAN).is_file())
 
     def test_dirty_agent_marker_only_change_uses_head_baseline(self):
         self.write_context()
@@ -853,7 +924,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertIn("AGENTS.md", plan["source_change_paths"])
-        self.assertNotIn("AGENTS.md", plan["dirty_source_change_paths"])
+        self.assertNotIn("AGENTS.md", plan["ignored_worktree_source_paths"])
 
     def test_legacy_metadata_backfills_reviewed_commit(self):
         self.write_context()
@@ -1522,26 +1593,40 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(architecture_index.read_bytes(), original_index)
         self.assertEqual(plan_path.read_bytes(), original_plan)
 
-    def test_finalize_rejects_dirty_source_before_syncing_stale_indexes(self):
+    def test_finalize_syncs_stale_indexes_while_ignoring_dirty_source(self):
         context, architecture_index, before_hash = (
             self.prepare_committed_stale_architecture_index()
         )
         original_home = context.read_bytes()
         original_index = architecture_index.read_bytes()
+        previous_source_commit = json.loads(
+            (self.root / project_context_update.DEFAULT_METADATA).read_text(
+                encoding="utf-8"
+            )
+        )["source_commit"]
+        current_head = self.git("rev-parse", "HEAD")
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                f"source_commit: {previous_source_commit}",
+                f"source_commit: {current_head}",
+            ),
+            encoding="utf-8",
+        )
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
 
-        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
-            project_context_update.finalize_context(
-                self.root,
-                project_context_update.DEFAULT_DOC,
-                project_context_update.DEFAULT_METADATA,
-                "update",
-                True,
-                before_hash,
-            )
+        result = project_context_update.finalize_context(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+            "update",
+            True,
+            before_hash,
+        )
 
-        self.assertEqual(context.read_bytes(), original_home)
-        self.assertEqual(architecture_index.read_bytes(), original_index)
+        self.assertTrue(result["finalized"])
+        self.assertNotEqual(context.read_bytes(), original_home)
+        self.assertNotEqual(architecture_index.read_bytes(), original_index)
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
 
     def test_finalize_requires_and_records_unmapped_ignore_reason(self):
         self.write_context()
@@ -1975,6 +2060,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
             before_hash,
         )
         (self.root / "app.py").write_text("print('changed')\n", encoding="utf-8")
+        self.git("add", "app.py")
+        self.git("commit", "-m", "change committed source")
 
         plan = project_context_update.build_plan(
             self.root,
@@ -2119,26 +2206,19 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.assertEqual(len(plan["created_indexes"]), 2)
 
-    def test_wiki_migration_apply_rejects_dirty_source_without_writing(self):
+    def test_wiki_migration_ignores_dirty_source_and_preserves_it(self):
         self.write_legacy_multi_context()
-        before = {
-            path.relative_to(self.root).as_posix(): path.read_bytes()
-            for path in sorted((self.root / "docs").rglob("*"))
-            if path.is_file()
-        }
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
 
-        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
-            project_context_update.apply_wiki_migration(
-                self.root, project_context_update.DEFAULT_DOC, "update"
-            )
+        result = project_context_update.apply_wiki_migration(
+            self.root, project_context_update.DEFAULT_DOC, "update"
+        )
 
-        after = {
-            path.relative_to(self.root).as_posix(): path.read_bytes()
-            for path in sorted((self.root / "docs").rglob("*"))
-            if path.is_file()
-        }
-        self.assertEqual(after, before)
+        self.assertTrue(result["applied"])
+        self.assertTrue(
+            (self.root / "docs/project-context/architecture/overview.md").is_file()
+        )
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
 
     def test_wiki_migration_rolls_back_partial_destination_write(self):
         self.write_legacy_multi_context()
@@ -2336,7 +2416,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
                 self.root, project_context_update.DEFAULT_DOC
             )
 
-    def test_sync_index_rejects_dirty_source_before_writing(self):
+    def test_sync_index_ignores_dirty_source_and_preserves_it(self):
         context = self.write_multi_context()
         project_context_update.sync_context_index(
             self.root, project_context_update.DEFAULT_DOC
@@ -2362,13 +2442,14 @@ read_when: 실행 흐름 변경 또는 동작 검증
         original_index = architecture_index.read_bytes()
         (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
 
-        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
-            project_context_update.sync_context_index(
-                self.root, project_context_update.DEFAULT_DOC
-            )
+        result = project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
 
         self.assertEqual(context.read_bytes(), original_home)
-        self.assertEqual(architecture_index.read_bytes(), original_index)
+        self.assertNotEqual(architecture_index.read_bytes(), original_index)
+        self.assertTrue(result["changed"])
+        self.assertEqual((self.root / "app.py").read_text(encoding="utf-8"), "print('dirty')\n")
 
     def test_sync_index_allows_dirty_source_when_nothing_would_change(self):
         self.write_multi_context()
@@ -2796,6 +2877,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.record_and_commit_context("docs: add oversized project context")
         (self.root / "app.py").write_text("print('changed')\n", encoding="utf-8")
+        self.git("add", "app.py")
+        self.git("commit", "-m", "change committed source")
 
         plan = project_context_update.build_plan(
             self.root,
@@ -3108,6 +3191,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.git("mv", "한글.py", "새 이름.py")
         arrow_path.write_text("value = 3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-m", "rename unusual paths")
         plan = project_context_update.build_plan(
             self.root,
             project_context_update.DEFAULT_DOC,

@@ -12,7 +12,7 @@ from project_context_index import (
 )
 from project_context_markdown import (
     iter_inline_links_with_spans,
-    relative_link_target,
+    repo_relative_link_path,
 )
 
 
@@ -165,13 +165,8 @@ def collect_semantic_relationships(
             line_start = markdown.rfind("\n", 0, target_start) + 1
             if line_start not in prose_lines:
                 continue
-            target = relative_link_target(raw_target)
-            if target is None:
-                continue
-            target_path = (path.parent / target).resolve()
-            try:
-                target_rel = target_path.relative_to(root).as_posix()
-            except ValueError:
+            target_rel = repo_relative_link_path(concept, raw_target)
+            if target_rel is None:
                 continue
             if target_rel not in concept_set or target_rel == concept:
                 continue

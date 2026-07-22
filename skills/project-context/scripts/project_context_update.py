@@ -50,6 +50,7 @@ from project_context_markdown import (  # noqa: E402
     is_external_link_target as is_external_target,
     iter_inline_links,
     iter_relative_link_targets as iter_relative_links,
+    repo_relative_link_path,
 )
 from project_context_graph import (  # noqa: E402
     collect_semantic_relationships,
@@ -407,14 +408,11 @@ def collect_doc_sources(root: Path, docs: list[str]) -> dict[str, list[str]]:
         if doc_path.is_symlink() or not doc_path.is_file():
             source_map[doc] = []
             continue
-        doc_dir = doc_path.parent
         sources: list[str] = []
         markdown = read_text(doc_path)
         for link in iter_relative_links(markdown):
-            target_path = (doc_dir / link).resolve()
-            try:
-                rel = target_path.relative_to(root).as_posix()
-            except ValueError:
+            rel = repo_relative_link_path(doc, link)
+            if rel is None:
                 continue
             if rel == DEFAULT_DOC or rel.startswith(f"{DEFAULT_DOC_DIR}/"):
                 continue
@@ -530,7 +528,7 @@ def map_affected_docs(
     return affected, unmapped
 
 
-def dirty_source_change_paths(
+def ignored_worktree_source_paths(
     root: Path,
     change_rows: list[dict] | None = None,
 ) -> list[str]:
@@ -599,26 +597,6 @@ def docs_unchanged_for_recording(
         and before_hash == content_hash
         and not dirty_generated_context_change_paths(root)
     )
-
-
-def require_clean_source_worktree_for_changed_docs(
-    root: Path,
-    docs_changed: bool,
-) -> None:
-    if not docs_changed:
-        return
-    require_clean_source_worktree(root, "record changed project context")
-
-
-def require_clean_source_worktree(root: Path, action: str) -> None:
-    # ponytail: metadata records commit baselines only; add a verified worktree
-    # fingerprint if documenting dirty source becomes an explicit workflow.
-    dirty_paths = dirty_source_change_paths(root)
-    if dirty_paths:
-        raise ValueError(
-            f"cannot {action} with dirty source worktree changes: "
-            + ", ".join(dirty_paths)
-        )
 
 
 def soft_diff_budget_warnings(
@@ -809,7 +787,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
     )
     changed_paths = []
     since_rows_for_impact = since_changes if has_previous_context else []
-    impact_rows = [*since_rows_for_impact, *dirty_changes, *status_changes]
+    impact_rows = [*since_rows_for_impact]
     for row in impact_rows:
         old_path = row.get("old_path")
         if isinstance(old_path, str) and old_path not in changed_paths:
@@ -854,7 +832,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         if not is_generated_doc_path(path)
         and not is_agent_reference_only_change(root, path, previous_commit)
     ]
-    current_dirty_source_change_paths = dirty_source_change_paths(
+    current_ignored_worktree_source_paths = ignored_worktree_source_paths(
         root, [*dirty_changes, *status_changes]
     )
     affected_docs, unmapped_changes = map_affected_docs(
@@ -946,7 +924,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "dirty_changes": dirty_changes,
         "renamed_paths": renamed_paths,
         "source_change_paths": source_change_paths,
-        "dirty_source_change_paths": current_dirty_source_change_paths,
+        "ignored_worktree_source_paths": current_ignored_worktree_source_paths,
         "generated_doc_changes": generated_doc_changes,
         "generated_context_doc_changes": generated_context_doc_changes,
         "metadata_document_state_stale": metadata_document_state_stale,
@@ -1149,6 +1127,7 @@ def format_plan(plan: dict) -> str:
         "# 프로젝트 컨텍스트 갱신 계획",
         "",
         f"- current_head: {plan.get('current_head_short') or plan.get('current_head') or '(unknown)'}",
+        "- source_scope: committed HEAD only",
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- previous_commit_source: {plan.get('previous_commit_source')}",
@@ -1201,6 +1180,12 @@ def format_plan(plan: dict) -> str:
         "",
         f"## {plan.get('dirty_changes_label')}",
         *format_changes(plan.get("dirty_changes", [])),
+        "",
+        "## 반영하지 않은 워크트리 소스",
+        *(
+            [f"- {path}" for path in plan.get("ignored_worktree_source_paths", [])]
+            or ["- (none)"]
+        ),
         "",
         "## 문서 목록",
     ])
@@ -1267,6 +1252,7 @@ def format_temp_plan(plan: dict) -> str:
         "## 실행 요약",
         "",
         f"- current_head: {plan.get('current_head_short') or plan.get('current_head') or '(unknown)'}",
+        "- source_scope: committed HEAD only",
         f"- previous_commit: {plan.get('previous_commit') or '(none)'}",
         f"- previous_updated_at: {plan.get('previous_updated_at') or '(none)'}",
         f"- recommended_action: {plan.get('recommended_action')}",
@@ -1303,6 +1289,13 @@ def format_temp_plan(plan: dict) -> str:
     lines.extend(["", "## 위키 구조 오류", ""])
     if wiki_errors:
         lines.extend(f"- {error}" for error in wiki_errors)
+    else:
+        lines.append("- (none)")
+
+    lines.extend(["", "## 반영하지 않은 워크트리 소스", ""])
+    ignored_worktree_sources = plan.get("ignored_worktree_source_paths", [])
+    if ignored_worktree_sources:
+        lines.extend(f"- {path}" for path in ignored_worktree_sources)
     else:
         lines.append("- (none)")
 
@@ -1406,7 +1399,6 @@ def has_project_context_plan_sentinel(markdown: str) -> bool:
 def write_temp_plan(root: Path, plan_rel: str, plan: dict) -> Path:
     require_git_repository(root)
     require_expected_path("temporary plan path", plan_rel, DEFAULT_TEMP_PLAN)
-    require_clean_source_worktree(root, "write project context plan")
     # ponytail: new concept paths are chosen after planning; finalize checks the
     # full inventory, revisit when plans declare exact destination pages.
     require_paths_not_ignored(
@@ -1674,7 +1666,6 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
         raise ValueError(
             f"temporary plan must be deleted before migration: {DEFAULT_TEMP_PLAN}"
         )
-    require_clean_source_worktree(root, "apply project context migration")
     plan, documents = _prepare_wiki_migration(root, doc_rel)
     previous_metadata = read_json(root / DEFAULT_METADATA) or {}
     migration_source_commit = parse_frontmatter(documents[doc_rel])["source_commit"]
@@ -1913,7 +1904,6 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
         [*docs, *pending_writes],
         "project context paths",
     )
-    require_clean_source_worktree_for_changed_docs(root, bool(pending_writes))
     _apply_context_writes(root, pending_writes)
     return result
 
@@ -1963,7 +1953,6 @@ def record_metadata(
         before_hash,
         content_hash,
     )
-    require_clean_source_worktree_for_changed_docs(root, not docs_unchanged)
     previous_source_commit = previous_metadata.get("source_commit")
     valid_previous_source_commit = (
         canonical_commit_oid(root, previous_source_commit)
@@ -2155,10 +2144,6 @@ def finalize_context(
         before_hash,
         docs_content_hash(root, current_docs),
     )
-    require_clean_source_worktree_for_changed_docs(
-        root, not docs_unchanged or bool(pending_index_writes)
-    )
-
     plan_path = root / DEFAULT_TEMP_PLAN
     plan_bytes = snapshot_file_bytes(plan_path)
     if (plan_path.exists() or plan_path.is_symlink()) and plan_bytes is None:
@@ -2291,6 +2276,9 @@ def main() -> int:
                         "structure_issues": plan.get("structure_issues", []),
                         "git_summary": plan.get("git_summary"),
                         "source_change_paths": plan.get("source_change_paths", []),
+                        "ignored_worktree_source_paths": plan.get(
+                            "ignored_worktree_source_paths", []
+                        ),
                         "affected_docs": plan.get("affected_docs", {}),
                         "changed_context_pages": plan.get("changed_context_pages", []),
                         "related_review_candidates": plan.get("related_review_candidates", {}),

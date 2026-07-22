@@ -72,6 +72,19 @@ def require_git_repository(root: Path) -> None:
     run_git_bytes(root, ["rev-parse", "--verify", "HEAD^{commit}"])
 
 
+def git_path_exists_at_commit(root: Path, ref: str, rel_path: str) -> bool:
+    output = run_git_bytes(
+        root,
+        ["ls-tree", "-z", "--full-tree", ref, "--", rel_path],
+    )
+    expected = os.fsencode(rel_path)
+    return any(
+        record.partition(b"\t")[2] == expected
+        for record in output.split(b"\0")
+        if record
+    )
+
+
 def git_ignored_paths(root: Path, paths: list[str]) -> list[str]:
     unique_paths = list(dict.fromkeys(paths))
     if not unique_paths:
