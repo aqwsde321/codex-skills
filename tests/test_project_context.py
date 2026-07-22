@@ -553,6 +553,45 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
         self.assertEqual(plan["affected_docs"], {"docs/project-context.md": ["app.py"]})
 
+    def test_finalize_rejects_changed_docs_while_source_worktree_is_dirty(self):
+        context = self.write_context()
+        self.record_and_commit_context("docs: add project context")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata_before = metadata_path.read_bytes()
+        previous_source_commit = json.loads(metadata_before)["source_commit"]
+        current_head = self.git("rev-parse", "HEAD")
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+        context.write_text(
+            context.read_text(encoding="utf-8")
+            .replace(
+                f"source_commit: {previous_source_commit}",
+                f"source_commit: {current_head}",
+            )
+            .replace(
+                "프로그램이 인사 문구를 출력한다.",
+                "프로그램이 dirty 문구를 출력한다.",
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "dirty source worktree changes"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "update",
+                True,
+                before_hash,
+            )
+
+        self.assertEqual(metadata_path.read_bytes(), metadata_before)
+
     def test_legacy_metadata_backfills_reviewed_commit(self):
         self.write_context()
         self.record()
@@ -1734,6 +1773,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
     def test_sync_index_requires_exact_marker_pair(self):
         context = self.write_multi_context()
+        missing_index = (
+            self.root / "docs" / "project-context" / "workflows" / "index.md"
+        )
+        missing_index.unlink()
         context.write_text(
             context.read_text(encoding="utf-8").replace(
                 "<!-- project-context:index:end -->", ""
@@ -1745,6 +1788,42 @@ read_when: 실행 흐름 변경 또는 동작 검증
             project_context_update.sync_context_index(
                 self.root, project_context_update.DEFAULT_DOC
             )
+
+        self.assertFalse(missing_index.exists())
+
+    def test_sync_index_inserts_missing_home_marker_for_multi_page_init(self):
+        context = self.write_multi_context()
+        for index_path in (
+            self.root / "docs" / "project-context"
+        ).glob("*/index.md"):
+            index_path.unlink()
+        context.write_text(
+            context.read_text(encoding="utf-8")
+            .replace("<!-- project-context:index:start -->\n", "")
+            .replace("<!-- project-context:index:end -->\n", ""),
+            encoding="utf-8",
+        )
+
+        result = project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+
+        home = context.read_text(encoding="utf-8")
+        self.assertEqual(home.count("<!-- project-context:index:start -->"), 1)
+        self.assertEqual(home.count("<!-- project-context:index:end -->"), 1)
+        self.assertEqual(
+            result["created_indexes"],
+            [
+                "docs/project-context/architecture/index.md",
+                "docs/project-context/workflows/index.md",
+            ],
+        )
+        self.assertTrue(
+            (self.root / "docs/project-context/architecture/index.md").is_file()
+        )
+        self.assertTrue(
+            (self.root / "docs/project-context/workflows/index.md").is_file()
+        )
 
     def test_subpages_require_multi_page_mode(self):
         context = self.write_multi_context()

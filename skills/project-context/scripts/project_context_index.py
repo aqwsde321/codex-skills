@@ -155,6 +155,7 @@ def collect_index_entries(
     target_docs: list[str],
     *,
     concepts: bool = False,
+    markdown_overrides: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, str]], list[str]]:
     entries: list[dict[str, str]] = []
     errors: list[str] = []
@@ -164,10 +165,16 @@ def collect_index_entries(
 
     for doc in sorted(target_docs):
         path = root / doc
-        if path.is_symlink() or not path.is_file():
+        override = (markdown_overrides or {}).get(doc)
+        if override is None and (path.is_symlink() or not path.is_file()):
             errors.append(f"{doc}: context index source must be a regular file")
             continue
-        fields = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        markdown = (
+            override
+            if override is not None
+            else path.read_text(encoding="utf-8", errors="replace")
+        )
+        fields = parse_frontmatter(markdown)
         values, field_errors = _validated_entry_fields(doc, fields, limits)
         errors.extend(field_errors)
         if field_errors:
@@ -218,6 +225,8 @@ def render_context_indexes(
     root: Path,
     primary_doc: str,
     docs: list[str],
+    *,
+    markdown_overrides: dict[str, str] | None = None,
 ) -> tuple[dict[str, str] | None, list[str]]:
     inventory = wiki_inventory(docs, primary_doc)
     errors = list(inventory["errors"])
@@ -228,7 +237,12 @@ def render_context_indexes(
     if not concepts:
         return {}, []
 
-    home_entries, home_errors = collect_index_entries(root, primary_doc, indexes)
+    home_entries, home_errors = collect_index_entries(
+        root,
+        primary_doc,
+        indexes,
+        markdown_overrides=markdown_overrides,
+    )
     errors.extend(home_errors)
     rendered: dict[str, str] = {
         primary_doc: _render_index(
@@ -244,7 +258,11 @@ def render_context_indexes(
             if area_index_for_concept(concept) == index_doc
         ]
         entries, entry_errors = collect_index_entries(
-            root, index_doc, area_concepts, concepts=True
+            root,
+            index_doc,
+            area_concepts,
+            concepts=True,
+            markdown_overrides=markdown_overrides,
         )
         errors.extend(entry_errors)
         rendered[index_doc] = _render_index(
@@ -282,6 +300,25 @@ def replace_context_index(markdown: str, rendered_index: str) -> tuple[str, bool
     if errors or current_index is None:
         raise ValueError("; ".join(errors))
     next_markdown = markdown.replace(current_index, rendered_index, 1)
+    return next_markdown, next_markdown != markdown
+
+
+def replace_or_insert_home_context_index(
+    markdown: str,
+    rendered_index: str,
+) -> tuple[str, bool]:
+    start_count = markdown.count(INDEX_START_MARKER)
+    end_count = markdown.count(INDEX_END_MARKER)
+    if start_count or end_count:
+        return replace_context_index(markdown, rendered_index)
+
+    evidence_heading = re.search(r"(?m)^##\s+근거\s*$", markdown)
+    if evidence_heading:
+        prefix = markdown[: evidence_heading.start()].rstrip()
+        suffix = markdown[evidence_heading.start() :].lstrip()
+        next_markdown = f"{prefix}\n\n{rendered_index}\n\n{suffix}".rstrip() + "\n"
+    else:
+        next_markdown = f"{markdown.rstrip()}\n\n{rendered_index}\n"
     return next_markdown, next_markdown != markdown
 
 

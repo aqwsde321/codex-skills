@@ -31,6 +31,7 @@ from project_context_index import (  # noqa: E402
     parse_frontmatter,
     render_context_indexes,
     replace_context_index,
+    replace_or_insert_home_context_index,
     set_frontmatter_field,
     wiki_inventory,
 )
@@ -783,6 +784,12 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         if not is_generated_doc_path(path)
         and not is_agent_reference_only_change(root, path, previous_commit)
     ]
+    dirty_source_change_paths = [
+        path
+        for path in current_change_paths
+        if not is_generated_doc_path(path)
+        and not is_agent_reference_only_change(root, path, previous_commit)
+    ]
     affected_docs, unmapped_changes = map_affected_docs(
         pages,
         source_map,
@@ -872,6 +879,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "dirty_changes": dirty_changes,
         "renamed_paths": renamed_paths,
         "source_change_paths": source_change_paths,
+        "dirty_source_change_paths": dirty_source_change_paths,
         "generated_doc_changes": generated_doc_changes,
         "generated_context_doc_changes": generated_context_doc_changes,
         "metadata_document_state_stale": metadata_document_state_stale,
@@ -1627,7 +1635,7 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
     if field_errors:
         raise ValueError("\n".join(field_errors))
 
-    created_indexes: list[str] = []
+    created_documents: dict[str, str] = {}
     for index_doc in inventory["expected_indexes"]:
         index_path = root / index_doc
         if index_doc in inventory["indexes"]:
@@ -1637,15 +1645,21 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
             raise ValueError(
                 f"area index parent must not be a symlink: {parent_symlink}"
             )
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(
-            index_path, new_area_index_markdown(Path(index_doc).parent.name)
+        if index_path.exists() or index_path.is_symlink():
+            raise ValueError(
+                f"area index must be a regular file or absent: {index_doc}"
+            )
+        created_documents[index_doc] = new_area_index_markdown(
+            Path(index_doc).parent.name
         )
-        created_indexes.append(index_doc)
 
-    if created_indexes:
-        docs = [doc for doc in discover_docs(root, doc_rel) if doc != DEFAULT_TEMP_PLAN]
-    rendered_indexes, errors = render_context_indexes(root, doc_rel, docs)
+    future_docs = sorted(set(docs) | set(created_documents))
+    rendered_indexes, errors = render_context_indexes(
+        root,
+        doc_rel,
+        future_docs,
+        markdown_overrides=created_documents,
+    )
     if errors or rendered_indexes is None:
         raise ValueError("\n".join(errors))
     if not rendered_indexes:
@@ -1660,15 +1674,23 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
     pending_writes: dict[str, str] = {}
     for index_doc, rendered_index in rendered_indexes.items():
         index_path = root / index_doc
-        if index_path.is_symlink() or not index_path.is_file():
+        current_markdown = created_documents.get(index_doc)
+        if current_markdown is None and (
+            index_path.is_symlink() or not index_path.is_file()
+        ):
             raise ValueError(f"index document must be a regular file: {index_doc}")
-        next_markdown, changed = replace_context_index(
-            read_text(index_path), rendered_index
+        current_markdown = current_markdown or read_text(index_path)
+        replace_index = (
+            replace_or_insert_home_context_index
+            if index_doc == doc_rel
+            else replace_context_index
         )
+        next_markdown, changed = replace_index(current_markdown, rendered_index)
         if changed:
             pending_writes[index_doc] = next_markdown
     for index_doc, markdown in pending_writes.items():
         atomic_write_text(root / index_doc, markdown)
+    created_indexes = sorted(created_documents)
     return {
         "changed": bool(created_indexes or pending_writes),
         "skipped": False,
@@ -1881,6 +1903,25 @@ def finalize_context(
     require_expected_path("primary context document", doc_rel, DEFAULT_DOC)
     require_expected_path("metadata path", metadata_rel, DEFAULT_METADATA)
     require_regular_file_or_missing(root, metadata_rel, "metadata path")
+
+    preflight_plan = build_plan(root, doc_rel, metadata_rel)
+    current_docs = [
+        doc
+        for doc in discover_docs(root, doc_rel)
+        if doc != DEFAULT_TEMP_PLAN
+    ]
+    docs_changed = (
+        before_hash is None
+        or docs_content_hash(root, current_docs) != before_hash
+    )
+    dirty_source_paths = preflight_plan.get("dirty_source_change_paths", [])
+    # ponytail: metadata records commit baselines only, so changed docs require a clean
+    # source worktree; revisit when schema stores a verified worktree fingerprint.
+    if docs_changed and dirty_source_paths:
+        raise ValueError(
+            "cannot finalize changed project context with dirty source worktree changes: "
+            + ", ".join(dirty_source_paths)
+        )
 
     sync_result = sync_context_index(root, doc_rel)
     current_plan = build_plan(root, doc_rel, metadata_rel)
