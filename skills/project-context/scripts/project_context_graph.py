@@ -10,7 +10,7 @@ from project_context_index import (
     INDEX_END_MARKER,
     INDEX_START_MARKER,
 )
-from project_context_markdown import iter_inline_link_targets
+from project_context_markdown import iter_inline_links
 
 
 EVIDENCE_HEADING_RE = re.compile(r"(?m)^##\s+근거\s*$")
@@ -18,6 +18,10 @@ NEXT_H2_RE = re.compile(r"(?m)^##\s+")
 GENERATED_INDEX_RE = re.compile(
     rf"{re.escape(INDEX_START_MARKER)}.*?{re.escape(INDEX_END_MARKER)}",
     re.DOTALL,
+)
+LINK_ONLY_LINE_RE = re.compile(
+    r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?\[[^\]\n]+\]"
+    r"\((?:[^()\n]|\([^()\n]*\))*\)\s*[.,;:]?\s*$"
 )
 
 
@@ -58,6 +62,16 @@ def _is_relative_target(target: str) -> bool:
     )
 
 
+def _is_link_only_line(markdown: str, target_start: int) -> bool:
+    line_start = markdown.rfind("\n", 0, target_start) + 1
+    line_end = markdown.find("\n", target_start)
+    if line_end == -1:
+        line_end = len(markdown)
+    # ponytail: only same-line prose is recognized, revisit when relationships
+    # commonly use multi-line tables or definition lists.
+    return LINK_ONLY_LINE_RE.fullmatch(markdown[line_start:line_end]) is not None
+
+
 def collect_semantic_relationships(
     root: Path,
     concepts: list[str],
@@ -73,7 +87,9 @@ def collect_semantic_relationships(
         markdown = semantic_markdown(
             path.read_text(encoding="utf-8", errors="replace")
         )
-        for raw_target in iter_inline_link_targets(markdown):
+        for raw_target, target_start, _ in iter_inline_links(markdown):
+            if _is_link_only_line(markdown, target_start):
+                continue
             target = _clean_target(raw_target)
             if not _is_relative_target(target):
                 continue

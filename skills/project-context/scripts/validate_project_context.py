@@ -61,7 +61,6 @@ CURRENT_GENERATOR_VERSION = "21"
 CURRENT_SCHEMA_VERSION = 2
 SNAPSHOT_EXCLUDED_PATHS = {DEFAULT_METADATA, TEMP_PLAN}
 MIN_SUBPAGE_BODY_CHARS = 500
-UPDATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
 PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 EVIDENCE_HEADING_RE = re.compile(r"^##\s+근거\s*$", re.MULTILINE)
 NEXT_H2_RE = re.compile(r"^##\s+", re.MULTILINE)
@@ -359,8 +358,12 @@ def validate_doc(root: Path, doc_rel: str, require_metadata: bool) -> tuple[list
         if frontmatter.get("generated_by") != "project-context":
             errors.append(f"{doc_rel}: missing metadata: generated_by: project-context")
         updated_at = frontmatter.get("updated_at")
-        if not updated_at or not UPDATED_AT_RE.match(updated_at):
-            errors.append(f"{doc_rel}: missing metadata: updated_at ISO-8601 timestamp")
+        if not updated_at:
+            errors.append(f"{doc_rel}: missing metadata: updated_at")
+        elif PROJECT_CONTEXT_TIMESTAMP_RE.fullmatch(updated_at) is None:
+            errors.append(
+                f"{doc_rel}: updated_at must be a UTC millisecond timestamp"
+            )
         mode = frontmatter.get("mode")
         if mode not in {"single-page", "multi-page"}:
             errors.append(f"{doc_rel}: missing metadata: mode single-page|multi-page")
@@ -484,7 +487,10 @@ def validate_metadata(
             f"{DEFAULT_METADATA}: generator_version must be {CURRENT_GENERATOR_VERSION}"
         )
     updated_at = metadata.get("updated_at")
-    if not isinstance(updated_at, str) or not PROJECT_CONTEXT_TIMESTAMP_RE.match(updated_at):
+    if (
+        not isinstance(updated_at, str)
+        or PROJECT_CONTEXT_TIMESTAMP_RE.fullmatch(updated_at) is None
+    ):
         errors.append(f"{DEFAULT_METADATA}: updated_at must be a UTC millisecond timestamp")
     run_mode = metadata.get("run_mode")
     if run_mode not in {"init", "update"}:

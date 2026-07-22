@@ -70,7 +70,7 @@ class ProjectContextTest(unittest.TestCase):
             f"""---
 generated_by: project-context
 source_commit: {source_commit}
-updated_at: 2026-07-20T00:00:00Z
+updated_at: 2026-07-20T00:00:00.000Z
 mode: single-page
 ---
 
@@ -131,7 +131,7 @@ Python으로 실행한다.
             f"""---
 generated_by: project-context
 source_commit: {source_commit}
-updated_at: 2026-07-20T00:00:00Z
+updated_at: 2026-07-20T00:00:00.000Z
 mode: multi-page
 ---
 
@@ -228,7 +228,7 @@ read_when: 실행 흐름의 구현 근거 확인
             f"""---
 generated_by: project-context
 source_commit: {source_commit}
-updated_at: 2026-07-20T00:00:00Z
+updated_at: 2026-07-20T00:00:00.000Z
 mode: multi-page
 custom_home: preserve-me
 ---
@@ -1388,7 +1388,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertIn("docs/project-context/domain/c.md", warnings[0])
         self.assertEqual(two_page_warnings, [])
 
-    def test_semantic_relationships_exclude_evidence_links(self):
+    def test_semantic_relationships_require_meaningful_prose_links(self):
         self.write_multi_context()
         architecture = self.root / "docs" / "project-context" / "architecture" / "overview.md"
         workflows_rel = "docs/project-context/workflows/overview.md"
@@ -1410,7 +1410,17 @@ read_when: 실행 흐름 변경 또는 동작 검증
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
                 "## 근거",
-                "[Workflow overview](../workflows/overview.md)은 구조 결정 뒤의 실행 흐름을 설명한다.\n\n## 근거",
+                "## 관련 문서\n\n- [Workflow overview](../workflows/overview.md)\n\n## 근거",
+            ),
+            encoding="utf-8",
+        )
+        bare_list = project_context_update.collect_semantic_relationships(
+            self.root, concepts
+        )
+        architecture.write_text(
+            architecture.read_text(encoding="utf-8").replace(
+                "- [Workflow overview](../workflows/overview.md)",
+                "[Workflow overview](../workflows/overview.md)은 구조 결정 뒤의 실행 흐름을 설명한다.",
             ),
             encoding="utf-8",
         )
@@ -1419,6 +1429,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertEqual(evidence_only["neighbors"][concepts[0]], [])
+        self.assertEqual(bare_list["neighbors"][concepts[0]], [])
         self.assertEqual(semantic["outgoing"][concepts[0]], [workflows_rel])
         self.assertEqual(semantic["incoming"][workflows_rel], [concepts[0]])
 
@@ -1825,6 +1836,23 @@ read_when: 실행 흐름 변경 또는 동작 검증
             (self.root / "docs/project-context/workflows/index.md").is_file()
         )
 
+    def test_sync_index_rejects_duplicate_concept_titles_across_areas(self):
+        self.write_multi_context()
+        workflows = (
+            self.root / "docs" / "project-context" / "workflows" / "overview.md"
+        )
+        workflows.write_text(
+            workflows.read_text(encoding="utf-8").replace(
+                "title: Workflow Overview", "title: Architecture Overview"
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicate concept title"):
+            project_context_update.sync_context_index(
+                self.root, project_context_update.DEFAULT_DOC
+            )
+
     def test_subpages_require_multi_page_mode(self):
         context = self.write_multi_context()
         context.write_text(
@@ -2020,6 +2048,26 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(code, 1)
         self.assertTrue(any("missing content_hash" in message for message in messages))
         self.assertTrue(any("pages must be a string list" in message for message in messages))
+
+    def test_primary_updated_at_requires_utc_millisecond_timestamp(self):
+        context = self.write_context()
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "updated_at: 2026-07-20T00:00:00.000Z",
+                "updated_at: 2026-07-22Tgarbage",
+            ),
+            encoding="utf-8",
+        )
+        self.record()
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("updated_at must be a UTC millisecond timestamp" in message for message in messages)
+        )
 
     def test_planner_rejects_invalid_metadata_baseline(self):
         self.write_context()

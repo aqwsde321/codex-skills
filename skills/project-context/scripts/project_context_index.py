@@ -185,14 +185,15 @@ def collect_index_entries(
             )
             continue
 
-        normalized_title = values["title"].casefold()
-        if normalized_title in seen_titles:
-            errors.append(
-                f"{doc}: duplicate index title with {seen_titles[normalized_title]}: "
-                f"{values['title']}"
-            )
-            continue
-        seen_titles[normalized_title] = doc
+        if not concepts:
+            normalized_title = values["title"].casefold()
+            if normalized_title in seen_titles:
+                errors.append(
+                    f"{doc}: duplicate index title with {seen_titles[normalized_title]}: "
+                    f"{values['title']}"
+                )
+                continue
+            seen_titles[normalized_title] = doc
         relative_path = Path(os.path.relpath(path, start=owner_dir)).as_posix()
         entries.append(
             {
@@ -203,6 +204,37 @@ def collect_index_entries(
         )
     entries.sort(key=lambda entry: (entry["title"].casefold(), entry["path"]))
     return entries, errors
+
+
+def validate_unique_concept_titles(
+    root: Path,
+    concepts: list[str],
+    markdown_overrides: dict[str, str] | None = None,
+) -> list[str]:
+    seen_titles: dict[str, str] = {}
+    errors: list[str] = []
+    for concept in sorted(concepts):
+        override = (markdown_overrides or {}).get(concept)
+        path = root / concept
+        if override is None and (path.is_symlink() or not path.is_file()):
+            continue
+        markdown = (
+            override
+            if override is not None
+            else path.read_text(encoding="utf-8", errors="replace")
+        )
+        title = parse_frontmatter(markdown).get("title", "").strip()
+        if not title:
+            continue
+        normalized_title = title.casefold()
+        if normalized_title in seen_titles:
+            errors.append(
+                f"{concept}: duplicate concept title with "
+                f"{seen_titles[normalized_title]}: {title}"
+            )
+            continue
+        seen_titles[normalized_title] = concept
+    return errors
 
 
 def _render_index(
@@ -236,6 +268,10 @@ def render_context_indexes(
         return None, errors
     if not concepts:
         return {}, []
+
+    errors.extend(
+        validate_unique_concept_titles(root, concepts, markdown_overrides)
+    )
 
     home_entries, home_errors = collect_index_entries(
         root,
