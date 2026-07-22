@@ -1889,6 +1889,10 @@ read_when: 실행 흐름 변경 또는 동작 검증
             "Depends on: [Workflow](../workflows/overview.md), "
             "[Fallback](../workflows/overview.md)",
             "Calls: [Payment service](../workflows/overview.md)",
+            "**Depends on:** [Workflow](../workflows/overview.md)",
+            "__Calls:__ [Payment service](../workflows/overview.md)",
+            "**Depends on**: [Workflow](../workflows/overview.md)",
+            "__Calls__: [Payment service](../workflows/overview.md)",
         ):
             with self.subTest(sentence=sentence):
                 architecture.write_text(
@@ -1913,7 +1917,7 @@ read_when: 실행 흐름 변경 또는 동작 검증
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
                 "## 근거",
-                "Depends on: [Workflow overview](../workflows/overview.md)\n\n## 근거",
+                "**Depends on:** [Workflow overview](../workflows/overview.md)\n\n## 근거",
             ),
             encoding="utf-8",
         )

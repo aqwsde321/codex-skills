@@ -25,6 +25,9 @@ GENERATED_INDEX_RE = re.compile(
 LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
+STRONG_EMPHASIS_LABEL_RE = re.compile(
+    r"^\s*(?P<marker>\*\*|__)(?P<label>.*?)(?P=marker)(?P<suffix>[\W_]*)$"
+)
 # ponytail: label-only semantic relations need an explicit vocabulary; extend
 # this list when another canonical relation label is documented.
 SEMANTIC_RELATION_LABEL_RE = re.compile(
@@ -92,7 +95,10 @@ def _relationship_prose_lines(
         remaining = HTML_COMMENT_RE.sub("", remaining)
         remaining = unescape(remaining)
         remaining = HTML_TAG_RE.sub("", remaining)
-        if SEMANTIC_RELATION_LABEL_RE.fullmatch(remaining):
+        semantic_label = STRONG_EMPHASIS_LABEL_RE.sub(
+            r"\g<label>\g<suffix>", remaining
+        )
+        if SEMANTIC_RELATION_LABEL_RE.fullmatch(semantic_label):
             prose_lines.add(line_start)
             continue
         remaining = NAVIGATION_LABEL_RE.sub("", remaining, count=1)
