@@ -72,6 +72,48 @@ def require_git_repository(root: Path) -> None:
     run_git_bytes(root, ["rev-parse", "--verify", "HEAD^{commit}"])
 
 
+def git_ignored_paths(root: Path, paths: list[str]) -> list[str]:
+    unique_paths = list(dict.fromkeys(paths))
+    if not unique_paths:
+        return []
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "--no-pager",
+                "check-ignore",
+                "--no-index",
+                "-z",
+                "--stdin",
+            ],
+            cwd=root,
+            check=False,
+            input=b"\0".join(os.fsencode(path) for path in unique_paths) + b"\0",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        raise ValueError(f"git check-ignore failed: {error}") from error
+    if result.returncode == 1:
+        return []
+    if result.returncode != 0:
+        message = result.stderr.decode(errors="replace").strip() or "unknown git error"
+        raise ValueError(f"git check-ignore failed: {message}")
+    return [
+        os.fsdecode(path)
+        for path in result.stdout.split(b"\0")
+        if path
+    ]
+
+
+def require_paths_not_ignored(root: Path, paths: list[str], label: str) -> None:
+    ignored = git_ignored_paths(root, paths)
+    if ignored:
+        raise ValueError(
+            f"{label} must not be ignored by Git: " + ", ".join(ignored)
+        )
+
+
 def resolve_commit_oid(root: Path, ref: str) -> str | None:
     try:
         output = run_git_bytes(

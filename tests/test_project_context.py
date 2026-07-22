@@ -708,6 +708,45 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertFalse(metadata_path.exists())
 
+    def test_finalize_rejects_project_context_documents_ignored_by_git(self):
+        (self.root / ".gitignore").write_text("docs/\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore docs")
+        self.write_context()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+        fresh_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "ignored by Git"):
+            project_context_update.finalize_context(
+                self.root,
+                project_context_update.DEFAULT_DOC,
+                project_context_update.DEFAULT_METADATA,
+                "init",
+                True,
+                fresh_hash,
+            )
+
+        self.assertFalse(metadata_path.exists())
+
+    def test_record_rejects_project_context_documents_ignored_by_git(self):
+        (self.root / ".gitignore").write_text("docs/\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore docs")
+        self.write_context()
+
+        with self.assertRaisesRegex(ValueError, "ignored by Git"):
+            self.record()
+
+        self.assertFalse(
+            (self.root / project_context_update.DEFAULT_METADATA).exists()
+        )
+
     def test_record_cli_rejects_changed_docs_while_source_worktree_is_dirty(self):
         context = self.write_context()
         self.record_and_commit_context("docs: add project context")
@@ -2286,6 +2325,20 @@ read_when: 실행 흐름 변경 또는 동작 검증
         )
 
         self.assertTrue(any("deterministic context index is stale" in error for error in errors))
+
+    def test_validator_rejects_project_context_documents_ignored_by_git(self):
+        self.write_context()
+        self.record_and_commit_context("docs: add project context")
+        (self.root / ".gitignore").write_text("docs/\n", encoding="utf-8")
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "ignore docs")
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertTrue(any("ignored by Git" in message for message in messages))
 
     def test_plan_does_not_call_a_committed_stale_index_no_op(self):
         self.write_multi_context()

@@ -11,6 +11,7 @@ exit 0만 완료다. warning은 보고하지만 완료를 막지 않는다. erro
 ## 오류 검사
 
 - managed path와 parent가 symlink가 아님
+- 홈·concept·index·metadata가 Git ignore 대상이 아님
 - `_plan.md` 없음
 - 홈과 metadata 존재
 - schema v2, current generator version

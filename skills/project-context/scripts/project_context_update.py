@@ -64,6 +64,7 @@ from project_context_safety import (  # noqa: E402
     normalize_utc_millisecond_timestamp,
     require_expected_path,
     require_git_repository,
+    require_paths_not_ignored,
     require_regular_file_or_missing,
     resolve_commit_oid,
     run_git_bytes,
@@ -1687,6 +1688,9 @@ def apply_wiki_migration(root: Path, doc_rel: str, run_mode: str) -> dict:
     migration_paths = sorted(
         set(documents) | set(plan["moves"]) | {DEFAULT_METADATA}
     )
+    require_paths_not_ignored(
+        root, migration_paths, "project context paths"
+    )
     originals, created_parent_dirs = _snapshot_migration_state(
         root, migration_paths
     )
@@ -1892,6 +1896,16 @@ def _apply_context_writes(
 
 def sync_context_index(root: Path, doc_rel: str) -> dict:
     result, pending_writes = _prepare_context_index_sync(root, doc_rel)
+    docs = [
+        doc
+        for doc in discover_docs(root, doc_rel)
+        if doc != DEFAULT_TEMP_PLAN
+    ]
+    require_paths_not_ignored(
+        root,
+        [*docs, *pending_writes],
+        "project context paths",
+    )
     require_clean_source_worktree_for_changed_docs(root, bool(pending_writes))
     _apply_context_writes(root, pending_writes)
     return result
@@ -1918,6 +1932,9 @@ def record_metadata(
     inventory = wiki_inventory(docs, doc_rel)
     if inventory["errors"]:
         raise ValueError("\n".join(inventory["errors"]))
+    require_paths_not_ignored(
+        root, [*docs, metadata_rel], "project context paths"
+    )
     pages = list(inventory["pages"])
     indexes = list(inventory["indexes"])
     source_map = collect_doc_sources(root, pages)
@@ -2118,6 +2135,11 @@ def finalize_context(
     ]
     sync_result, pending_index_writes = _prepare_context_index_sync(
         root, doc_rel, current_docs
+    )
+    require_paths_not_ignored(
+        root,
+        [*current_docs, *pending_index_writes, metadata_rel],
+        "project context paths",
     )
     docs_unchanged = docs_unchanged_for_recording(
         root,

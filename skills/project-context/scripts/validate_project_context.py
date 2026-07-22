@@ -58,6 +58,7 @@ from project_context_safety import (  # noqa: E402
     context_tree_symlinks,
     is_utc_millisecond_timestamp,
     require_git_repository,
+    require_paths_not_ignored,
     resolve_commit_oid,
     symlink_parent,
 )
@@ -751,6 +752,12 @@ def validate(
         errors.append(f"temporary plan must be deleted before finish: {TEMP_PLAN}")
     docs = discover_docs(root, doc_rel)
     docs = [doc for doc in docs if doc != TEMP_PLAN]
+    try:
+        require_paths_not_ignored(
+            root, [*docs, DEFAULT_METADATA], "project context paths"
+        )
+    except ValueError as error:
+        errors.append(str(error))
     inventory = wiki_inventory(docs, doc_rel)
     errors.extend(inventory["errors"])
     metadata_errors, metadata_warnings = validate_metadata(
