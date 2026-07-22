@@ -26,12 +26,12 @@ LIST_PREFIX_RE = re.compile(r"^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
 STRONG_EMPHASIS_LABEL_RE = re.compile(
-    r"^\s*(?P<marker>\*\*|__)(?P<label>.*?)(?P=marker)(?P<suffix>[\W_]*)$"
+    r"^\s*(?P<marker>\*\*|__)(?P<label>.*?)(?P=marker)(?P<suffix>.*)$"
 )
 # ponytail: label-only semantic relations need an explicit vocabulary; extend
 # this list when another canonical relation label is documented.
-SEMANTIC_RELATION_LABEL_RE = re.compile(
-    r"^\s*(?:depends?\s+on|calls?)\s*[:：][\W_]*$",
+SEMANTIC_RELATION_LABEL_PREFIX_RE = re.compile(
+    r"^\s*(?:depends?\s+on|calls?)\s*[:：]",
     re.IGNORECASE,
 )
 NAVIGATION_LABEL_RE = re.compile(
@@ -45,6 +45,12 @@ NAVIGATION_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 GENERIC_LINK_LABEL_RE = re.compile(r"^\s*[^:：\n]{1,160}[:：]\s*")
+# ponytail: connector-only navigation uses the languages supported above;
+# extend both vocabularies together when another navigation language appears.
+NAVIGATION_CONNECTOR_RE = re.compile(
+    r"(?<!\w)(?:and|or|y|o|및|또는|그리고|혹은|와|과|と|または)(?!\w)",
+    re.IGNORECASE,
+)
 NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
@@ -98,11 +104,12 @@ def _relationship_prose_lines(
         semantic_label = STRONG_EMPHASIS_LABEL_RE.sub(
             r"\g<label>\g<suffix>", remaining
         )
-        if SEMANTIC_RELATION_LABEL_RE.fullmatch(semantic_label):
+        if SEMANTIC_RELATION_LABEL_PREFIX_RE.match(semantic_label):
             prose_lines.add(line_start)
             continue
         remaining = NAVIGATION_LABEL_RE.sub("", remaining, count=1)
         remaining = GENERIC_LINK_LABEL_RE.sub("", remaining, count=1)
+        remaining = NAVIGATION_CONNECTOR_RE.sub("", remaining)
         if NON_WORD_RE.sub("", remaining):
             prose_lines.add(line_start)
     # ponytail: only same-line prose is recognized, revisit when relationships

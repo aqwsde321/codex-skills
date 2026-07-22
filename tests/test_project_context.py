@@ -1836,12 +1836,22 @@ read_when: 실행 흐름 변경 또는 동작 검증
             f"Related docs: {links}",
             f"Related links {links}",
             f"Related pages: {links}",
+            "Related pages: [흐름](../workflows/overview.md) and "
+            "[상세](../workflows/overview.md)",
             f"Links: {links}",
+            "Links: [흐름](../workflows/overview.md) or "
+            "[상세](../workflows/overview.md)",
             "Links: [흐름](../workflows/overview.md)",
             f"References {links}",
             f"See also {links}",
             f"Documentos relacionados: {links}",
+            "Documentos relacionados: [흐름](../workflows/overview.md) y "
+            "[상세](../workflows/overview.md)",
             f"関連文書： {links}",
+            "関連文書： [흐름](../workflows/overview.md) と "
+            "[상세](../workflows/overview.md)",
+            "관련 문서: [흐름](../workflows/overview.md) 및 "
+            "[상세](../workflows/overview.md)",
         ):
             with self.subTest(navigation=navigation):
                 architecture.write_text(
@@ -1860,6 +1870,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         for sentence in (
             "The flow depends on [Workflow](../workflows/overview.md).",
             "Dependency: [Workflow](../workflows/overview.md) controls recovery.",
+            "Related pages: [Workflow](../workflows/overview.md) and "
+            "the fallback handles recovery.",
         ):
             with self.subTest(sentence=sentence):
                 architecture.write_text(
@@ -1890,6 +1902,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
             "[Fallback](../workflows/overview.md)",
             "Calls: [Payment service](../workflows/overview.md)",
             "**Depends on:** [Workflow](../workflows/overview.md)",
+            "**Depends on:** [Workflow](../workflows/overview.md) and "
+            "[Fallback](../workflows/overview.md)",
             "__Calls:__ [Payment service](../workflows/overview.md)",
             "**Depends on**: [Workflow](../workflows/overview.md)",
             "__Calls__: [Payment service](../workflows/overview.md)",
@@ -1917,7 +1931,8 @@ read_when: 실행 흐름 변경 또는 동작 검증
         architecture.write_text(
             architecture.read_text(encoding="utf-8").replace(
                 "## 근거",
-                "**Depends on:** [Workflow overview](../workflows/overview.md)\n\n## 근거",
+                "**Depends on:** [Workflow overview](../workflows/overview.md) and "
+                "[Workflow details](../workflows/overview.md)\n\n## 근거",
             ),
             encoding="utf-8",
         )
