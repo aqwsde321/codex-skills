@@ -1,10 +1,30 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
+
+
+UTC_MILLISECOND_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"
+)
+
+
+def is_utc_millisecond_timestamp(value: object) -> bool:
+    if (
+        not isinstance(value, str)
+        or UTC_MILLISECOND_TIMESTAMP_RE.fullmatch(value) is None
+    ):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError:
+        return False
+    return True
 
 
 def run_git_bytes(root: Path, args: list[str]) -> bytes:

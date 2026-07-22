@@ -592,6 +592,75 @@ read_when: 실행 흐름 변경 또는 동작 검증
 
         self.assertEqual(metadata_path.read_bytes(), metadata_before)
 
+    def test_record_cli_rejects_changed_docs_while_source_worktree_is_dirty(self):
+        context = self.write_context()
+        self.record_and_commit_context("docs: add project context")
+        before_hash = project_context_update.docs_content_hash(
+            self.root,
+            project_context_update.discover_docs(
+                self.root, project_context_update.DEFAULT_DOC
+            ),
+        )
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata_before = metadata_path.read_bytes()
+        previous_source_commit = json.loads(metadata_before)["source_commit"]
+        current_head = self.git("rev-parse", "HEAD")
+        (self.root / "app.py").write_text("print('dirty')\n", encoding="utf-8")
+        context.write_text(
+            context.read_text(encoding="utf-8")
+            .replace(
+                f"source_commit: {previous_source_commit}",
+                f"source_commit: {current_head}",
+            )
+            .replace(
+                "프로그램이 인사 문구를 출력한다.",
+                "프로그램이 dirty 문구를 출력한다.",
+            ),
+            encoding="utf-8",
+        )
+
+        completed = self.run_script(
+            "project_context_update.py",
+            "record",
+            self.root,
+            "--mode",
+            "update",
+            "--if-changed",
+            "--before-hash",
+            before_hash,
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("dirty source worktree changes", completed.stderr)
+        self.assertEqual(metadata_path.read_bytes(), metadata_before)
+
+    def test_dirty_agent_marker_only_change_uses_head_baseline(self):
+        self.write_context()
+        self.record_and_commit_context("docs: add project context")
+        agent_path = self.root / "AGENTS.md"
+        agent_path.write_text(
+            f"# User Rule\n\n{agent_path.read_text(encoding='utf-8')}",
+            encoding="utf-8",
+        )
+        self.git("add", "AGENTS.md")
+        self.git("commit", "-m", "docs: add user agent rule")
+        agent_path.write_text(
+            agent_path.read_text(encoding="utf-8").replace(
+                "모든 개념 문서를 미리 읽지 않는다.",
+                "각 개념 문서를 미리 읽지 않는다.",
+            ),
+            encoding="utf-8",
+        )
+
+        plan = project_context_update.build_plan(
+            self.root,
+            project_context_update.DEFAULT_DOC,
+            project_context_update.DEFAULT_METADATA,
+        )
+
+        self.assertIn("AGENTS.md", plan["source_change_paths"])
+        self.assertNotIn("AGENTS.md", plan["dirty_source_change_paths"])
+
     def test_legacy_metadata_backfills_reviewed_commit(self):
         self.write_context()
         self.record()
@@ -1836,6 +1905,41 @@ read_when: 실행 흐름 변경 또는 동작 검증
             (self.root / "docs/project-context/workflows/index.md").is_file()
         )
 
+    def test_sync_index_removes_home_marker_after_last_concept_is_deleted(self):
+        context = self.write_multi_context()
+        project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+        shutil.rmtree(self.root / project_context_update.DEFAULT_DOC_DIR)
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "mode: multi-page", "mode: single-page"
+            ),
+            encoding="utf-8",
+        )
+        docs = validate_project_context.discover_docs(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        stale_errors, _ = (
+            validate_project_context.validate_deterministic_context_index(
+                self.root, validate_project_context.DEFAULT_DOC, docs
+            )
+        )
+        result = project_context_update.sync_context_index(
+            self.root, project_context_update.DEFAULT_DOC
+        )
+
+        markdown = context.read_text(encoding="utf-8")
+        self.assertTrue(
+            any("home-only wiki must not contain" in error for error in stale_errors)
+        )
+        self.assertTrue(result["changed"])
+        self.assertFalse(result["skipped"])
+        self.assertEqual(result["changed_docs"], [project_context_update.DEFAULT_DOC])
+        self.assertNotIn("<!-- project-context:index:start -->", markdown)
+        self.assertNotIn("<!-- project-context:index:end -->", markdown)
+
     def test_sync_index_rejects_duplicate_concept_titles_across_areas(self):
         self.write_multi_context()
         workflows = (
@@ -2067,6 +2171,34 @@ read_when: 실행 흐름 변경 또는 동작 검증
         self.assertEqual(code, 1)
         self.assertTrue(
             any("updated_at must be a UTC millisecond timestamp" in message for message in messages)
+        )
+
+    def test_updated_at_requires_a_real_utc_datetime(self):
+        context = self.write_context()
+        context.write_text(
+            context.read_text(encoding="utf-8").replace(
+                "updated_at: 2026-07-20T00:00:00.000Z",
+                "updated_at: 2026-99-99T99:99:99.999Z",
+            ),
+            encoding="utf-8",
+        )
+        self.record()
+        metadata_path = self.root / project_context_update.DEFAULT_METADATA
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["updated_at"] = "2026-99-99T99:99:99.999Z"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        code, messages, _ = validate_project_context.validate(
+            self.root, validate_project_context.DEFAULT_DOC
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            sum(
+                "updated_at must be a UTC millisecond timestamp" in message
+                for message in messages
+            ),
+            2,
         )
 
     def test_planner_rejects_invalid_metadata_baseline(self):

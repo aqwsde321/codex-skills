@@ -358,6 +358,25 @@ def replace_or_insert_home_context_index(
     return next_markdown, next_markdown != markdown
 
 
+def remove_context_index(markdown: str) -> tuple[str, bool]:
+    start_count = markdown.count(INDEX_START_MARKER)
+    end_count = markdown.count(INDEX_END_MARKER)
+    if start_count == end_count == 0:
+        return markdown, False
+    current_index, errors = extract_context_index(markdown)
+    if errors or current_index is None:
+        raise ValueError("; ".join(errors))
+    start = markdown.find(current_index)
+    end = start + len(current_index)
+    parts = [
+        part
+        for part in (markdown[:start].rstrip(), markdown[end:].lstrip())
+        if part
+    ]
+    next_markdown = "\n\n".join(parts).rstrip() + "\n"
+    return next_markdown, next_markdown != markdown
+
+
 def area_title(area: str) -> str:
     return area.replace("-", " ").replace("_", " ").strip().title() or area
 

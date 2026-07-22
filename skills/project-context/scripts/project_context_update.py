@@ -29,6 +29,7 @@ from project_context_index import (  # noqa: E402
     INDEX_START_MARKER,
     new_area_index_markdown,
     parse_frontmatter,
+    remove_context_index,
     render_context_indexes,
     replace_context_index,
     replace_or_insert_home_context_index,
@@ -53,6 +54,7 @@ from project_context_safety import (  # noqa: E402
     atomic_write_text,
     canonical_commit_oid,
     context_tree_symlinks,
+    is_utc_millisecond_timestamp,
     require_expected_path,
     require_git_repository,
     require_regular_file_or_missing,
@@ -76,7 +78,6 @@ SCHEMA_VERSION = 2
 PLAN_SENTINEL = "# Project Context Draft Plan"
 UNMAPPED_START_MARKER = "<!-- project-context:unmapped:start -->"
 UNMAPPED_END_MARKER = "<!-- project-context:unmapped:end -->"
-PROJECT_CONTEXT_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 HIGH_SIGNAL_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
@@ -226,7 +227,7 @@ def is_structured_update_metadata(metadata: dict) -> bool:
     updated_at = metadata.get("updated_at")
     return (
         isinstance(updated_at, str)
-        and PROJECT_CONTEXT_TIMESTAMP_RE.fullmatch(updated_at) is not None
+        and is_utc_millisecond_timestamp(updated_at)
         and metadata.get("run_mode") in {"init", "update"}
     )
 
@@ -523,6 +524,53 @@ def map_affected_docs(
     return affected, unmapped
 
 
+def dirty_source_change_paths(
+    root: Path,
+    change_rows: list[dict] | None = None,
+) -> list[str]:
+    rows = change_rows
+    if rows is None:
+        rows = [
+            *parse_name_status_z(
+                run_git_bytes(root, ["diff", "--name-status", "-z", "HEAD"])
+            ),
+            *parse_status_z(
+                run_git_bytes(
+                    root,
+                    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                )
+            ),
+        ]
+    paths: list[str] = []
+    for row in rows:
+        for key in ("old_path", "path"):
+            path = row.get(key)
+            if isinstance(path, str) and path not in paths:
+                paths.append(path)
+    return [
+        path
+        for path in paths
+        if not is_generated_doc_path(path)
+        and not is_agent_reference_only_change(root, path, "HEAD")
+    ]
+
+
+def require_clean_source_worktree_for_changed_docs(
+    root: Path,
+    docs_changed: bool,
+) -> None:
+    if not docs_changed:
+        return
+    # ponytail: metadata records commit baselines only; add a verified worktree
+    # fingerprint if documenting dirty source becomes an explicit workflow.
+    dirty_paths = dirty_source_change_paths(root)
+    if dirty_paths:
+        raise ValueError(
+            "cannot record changed project context with dirty source worktree changes: "
+            + ", ".join(dirty_paths)
+        )
+
+
 def soft_diff_budget_warnings(
     source_change_paths: list[str],
     affected_docs: dict[str, list[str]],
@@ -765,12 +813,9 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         if not is_generated_doc_path(path)
         and not is_agent_reference_only_change(root, path, previous_commit)
     ]
-    dirty_source_change_paths = [
-        path
-        for path in current_change_paths
-        if not is_generated_doc_path(path)
-        and not is_agent_reference_only_change(root, path, previous_commit)
-    ]
+    current_dirty_source_change_paths = dirty_source_change_paths(
+        root, [*dirty_changes, *status_changes]
+    )
     affected_docs, unmapped_changes = map_affected_docs(
         pages,
         source_map,
@@ -860,7 +905,7 @@ def build_plan(root: Path, doc_rel: str, metadata_rel: str) -> dict:
         "dirty_changes": dirty_changes,
         "renamed_paths": renamed_paths,
         "source_change_paths": source_change_paths,
-        "dirty_source_change_paths": dirty_source_change_paths,
+        "dirty_source_change_paths": current_dirty_source_change_paths,
         "generated_doc_changes": generated_doc_changes,
         "generated_context_doc_changes": generated_context_doc_changes,
         "metadata_document_state_stale": metadata_document_state_stale,
@@ -1644,12 +1689,18 @@ def sync_context_index(root: Path, doc_rel: str) -> dict:
     if errors or rendered_indexes is None:
         raise ValueError("\n".join(errors))
     if not rendered_indexes:
+        current_markdown = read_text(doc_path)
+        next_markdown, changed = remove_context_index(current_markdown)
+        if changed:
+            atomic_write_text(doc_path, next_markdown)
         return {
-            "changed": False,
-            "skipped": True,
+            "changed": changed,
+            "skipped": not changed,
             "reason": "wiki has no concept pages",
             "doc": doc_rel,
-            "changed_docs": [],
+            "changed_docs": [doc_rel] if changed else [],
+            "created_indexes": [],
+            "indexes": 0,
         }
 
     pending_writes: dict[str, str] = {}
@@ -1721,6 +1772,7 @@ def record_metadata(
         (bool(before_hash) and before_hash == content_hash)
         or previous_metadata.get("content_hash") == content_hash
     )
+    require_clean_source_worktree_for_changed_docs(root, not docs_unchanged)
     previous_source_commit = previous_metadata.get("source_commit")
     valid_previous_source_commit = (
         canonical_commit_oid(root, previous_source_commit)
@@ -1799,7 +1851,7 @@ def record_metadata(
         )
         or source_metadata_needs_repair
         or not isinstance(previous_updated_at, str)
-        or PROJECT_CONTEXT_TIMESTAMP_RE.fullmatch(previous_updated_at) is None
+        or not is_utc_millisecond_timestamp(previous_updated_at)
         or previous_metadata.get("run_mode") not in {"init", "update"}
         or any(
             previous_metadata.get(field) != expected
@@ -1885,7 +1937,6 @@ def finalize_context(
     require_expected_path("metadata path", metadata_rel, DEFAULT_METADATA)
     require_regular_file_or_missing(root, metadata_rel, "metadata path")
 
-    preflight_plan = build_plan(root, doc_rel, metadata_rel)
     current_docs = [
         doc
         for doc in discover_docs(root, doc_rel)
@@ -1895,14 +1946,7 @@ def finalize_context(
         before_hash is None
         or docs_content_hash(root, current_docs) != before_hash
     )
-    dirty_source_paths = preflight_plan.get("dirty_source_change_paths", [])
-    # ponytail: metadata records commit baselines only, so changed docs require a clean
-    # source worktree; revisit when schema stores a verified worktree fingerprint.
-    if docs_changed and dirty_source_paths:
-        raise ValueError(
-            "cannot finalize changed project context with dirty source worktree changes: "
-            + ", ".join(dirty_source_paths)
-        )
+    require_clean_source_worktree_for_changed_docs(root, docs_changed)
 
     sync_result = sync_context_index(root, doc_rel)
     current_plan = build_plan(root, doc_rel, metadata_rel)
